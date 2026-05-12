@@ -145,7 +145,7 @@ export function NovoCartaoSheet({
         role="dialog"
         aria-modal="true"
         aria-labelledby="novo-cartao-titulo"
-        className="pointer-events-auto absolute inset-x-0 bottom-0 z-[1] mx-auto flex max-h-[min(92dvh,640px)] w-full max-w-[430px] flex-col rounded-t-[28px] border border-white/12 bg-[#121212]/96 shadow-[0_-14px_56px_rgba(0,0,0,0.55)] backdrop-blur-2xl"
+        className="pointer-events-auto absolute inset-x-0 bottom-0 z-[1] mx-auto flex max-h-[85vh] min-h-0 w-full max-w-[430px] flex-col overflow-hidden rounded-t-[28px] border border-white/12 bg-[#121212]/96 shadow-[0_-14px_56px_rgba(0,0,0,0.55)] backdrop-blur-2xl"
         style={{
           paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
         }}
@@ -167,7 +167,7 @@ export function NovoCartaoSheet({
 
         <form
           onSubmit={handleSubmit}
-          className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-4 py-5"
+          className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-4 py-5 pb-20"
         >
           {error ? (
             <p

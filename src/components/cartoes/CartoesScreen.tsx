@@ -297,6 +297,37 @@ export function CartoesScreen() {
     async (e: FormEvent) => {
       e.preventDefault();
 
+      let userId: string | null = null;
+      try {
+        const {
+          data: { user },
+          error: userErr,
+        } = await supabase.auth.getUser();
+        if (userErr) {
+          console.error("Erro Supabase:", userErr);
+        }
+        userId = user?.id ?? null;
+        if (!userId) {
+          const { data: sessionData, error: sessionErr } =
+            await supabase.auth.getSession();
+          if (sessionErr) {
+            console.error("Erro Supabase:", sessionErr);
+          }
+          userId = sessionData.session?.user?.id ?? null;
+        }
+      } catch (err) {
+        console.error("Erro Supabase:", err);
+        window.alert(
+          "Não foi possível verificar sua sessão. Tente novamente ou entre de novo.",
+        );
+        return;
+      }
+
+      if (!userId) {
+        window.alert("Não foi possível identificar o usuário. Entre novamente.");
+        return;
+      }
+
       if (!nome.trim()) {
         window.alert("Preencha o nome do cartão.");
         return;
@@ -308,74 +339,75 @@ export function CartoesScreen() {
       const df = Math.min(31, Math.max(1, Math.round(diaFechamento)));
       const dv = Math.min(31, Math.max(1, Math.round(diaVencimento)));
 
-      const {
-        data: { user },
-        error: uErr,
-      } = await supabase.auth.getUser();
-      if (uErr || !user) {
-        console.error(uErr);
-        window.alert("Não foi possível identificar o usuário. Entre novamente.");
-        return;
-      }
+      try {
+        if (cartaoEditando) {
+          const updatePayload = {
+            nome: nome.trim(),
+            dia_fechamento: df,
+            dia_vencimento: dv,
+          };
+          const { data: updated, error } = await supabase
+            .from("cartoes")
+            .update(updatePayload)
+            .eq("id", cartaoEditando)
+            .eq("user_id", userId)
+            .select("*")
+            .single();
 
-      if (cartaoEditando) {
-        const updatePayload = {
+          if (error) {
+            console.error("Erro Supabase:", error);
+            window.alert(
+              error.message ?? "Erro ao atualizar o cartão. Verifique o console.",
+            );
+            return;
+          }
+
+          if (updated) {
+            const mapped = mapCartaoRow(updated as Record<string, unknown>);
+            setCartoes((prev) =>
+              prev.map((c) => (c.id === cartaoEditando ? mapped : c)),
+            );
+            resetForm();
+            setIsModalOpen(false);
+          }
+          return;
+        }
+
+        const insertRow = {
+          user_id: userId,
+          banco: selectedBanco,
           nome: nome.trim(),
           dia_fechamento: df,
           dia_vencimento: dv,
         };
-        const { data: updated, error } = await supabase
+
+        const { data: inserted, error } = await supabase
           .from("cartoes")
-          .update(updatePayload)
-          .eq("id", cartaoEditando)
-          .eq("user_id", user.id)
+          .insert(insertRow)
           .select("*")
           .single();
 
         if (error) {
-          console.error(error);
-          window.alert(error.message ?? "Erro ao atualizar o cartão.");
+          console.error("Erro Supabase:", error);
+          window.alert(
+            error.message ?? "Erro ao salvar o cartão. Verifique o console.",
+          );
           return;
         }
 
-        if (updated) {
-          const mapped = mapCartaoRow(updated as Record<string, unknown>);
-          setCartoes((prev) =>
-            prev.map((c) => (c.id === cartaoEditando ? mapped : c)),
-          );
+        if (inserted) {
+          setCartoes((prev) => [
+            ...prev,
+            mapCartaoRow(inserted as Record<string, unknown>),
+          ]);
           resetForm();
           setIsModalOpen(false);
         }
-        return;
-      }
-
-      const insertRow = {
-        user_id: user.id,
-        banco: selectedBanco,
-        nome: nome.trim(),
-        dia_fechamento: df,
-        dia_vencimento: dv,
-      };
-
-      const { data: inserted, error } = await supabase
-        .from("cartoes")
-        .insert(insertRow)
-        .select("*")
-        .single();
-
-      if (error) {
-        console.error(error);
-        window.alert(error.message ?? "Erro ao salvar o cartão.");
-        return;
-      }
-
-      if (inserted) {
-        setCartoes((prev) => [
-          ...prev,
-          mapCartaoRow(inserted as Record<string, unknown>),
-        ]);
-        resetForm();
-        setIsModalOpen(false);
+      } catch (err) {
+        console.error("Erro Supabase:", err);
+        window.alert(
+          "Erro inesperado ao salvar. Abra o console do desenvolvedor para detalhes.",
+        );
       }
     },
     [selectedBanco, nome, diaFechamento, diaVencimento, cartaoEditando],
@@ -458,29 +490,27 @@ export function CartoesScreen() {
             }}
           />
           <div
-            className="relative z-[1] mx-auto mb-0 w-full max-w-[430px] rounded-t-[1.65rem] border border-white/12 bg-[#121212]/98 shadow-[0_-16px_64px_rgba(0,0,0,0.55)] backdrop-blur-xl sm:mb-auto sm:rounded-3xl sm:shadow-2xl"
+            className="relative z-[1] mx-auto mb-0 flex max-h-[85vh] w-full max-w-[430px] flex-col overflow-hidden rounded-t-[1.65rem] border border-white/12 bg-[#121212]/98 shadow-[0_-16px_64px_rgba(0,0,0,0.55)] backdrop-blur-xl sm:mb-auto sm:rounded-3xl sm:shadow-2xl"
             role="dialog"
             aria-modal="true"
             aria-labelledby="modal-cartoes-titulo"
           >
-            <div className="border-b border-white/10 px-5 py-4">
-              <h2
-                id="modal-cartoes-titulo"
-                className="text-lg font-semibold text-white"
-              >
-                {cartaoEditando ? "Editar Cartão" : "Novo Cartão"}
-              </h2>
-              <p className="mt-1 text-xs text-zinc-500">
-                {cartaoEditando
-                  ? "A instituição não pode ser alterada. Edite nome e datas."
-                  : "Escolha o banco e preencha os dados do cartão."}
-              </p>
-            </div>
-            <form
-              onSubmit={handleSalvarCartao}
-              className="flex max-h-[min(85dvh,620px)] flex-col"
-            >
-              <div className="max-h-[min(58dvh,380px)] space-y-4 overflow-y-auto px-5 py-5">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+              <div className="sticky top-0 z-[2] border-b border-white/10 bg-[#121212]/98 px-5 py-4 backdrop-blur-md">
+                <h2
+                  id="modal-cartoes-titulo"
+                  className="text-lg font-semibold text-white"
+                >
+                  {cartaoEditando ? "Editar Cartão" : "Novo Cartão"}
+                </h2>
+                <p className="mt-1 text-xs text-zinc-500">
+                  {cartaoEditando
+                    ? "A instituição não pode ser alterada. Edite nome e datas."
+                    : "Escolha o banco e preencha os dados do cartão."}
+                </p>
+              </div>
+              <form onSubmit={handleSalvarCartao} className="px-5 pb-20 pt-5">
+                <div className="space-y-4">
                 {!cartaoEditando ? (
                   <div>
                     <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
@@ -555,7 +585,7 @@ export function CartoesScreen() {
                     required
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-4 pb-2">
+                <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label
                       htmlFor="cartao-fechar"
@@ -601,26 +631,27 @@ export function CartoesScreen() {
                     />
                   </div>
                 </div>
-              </div>
-              <div className="flex gap-3 border-t border-white/10 px-5 py-4 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
-                <button
-                  type="button"
-                  onClick={() => {
-                    resetForm();
-                    setIsModalOpen(false);
-                  }}
-                  className="flex-1 rounded-2xl border border-white/15 bg-transparent py-3.5 text-sm font-semibold text-zinc-200 transition hover:bg-white/[0.06]"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 rounded-2xl bg-[#10B981] py-3.5 text-sm font-bold text-white shadow-inner shadow-black/25 transition hover:bg-[#0ea271]"
-                >
-                  {cartaoEditando ? "Atualizar" : "Salvar"}
-                </button>
-              </div>
-            </form>
+                </div>
+                <div className="mt-8 flex gap-3 border-t border-white/10 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      resetForm();
+                      setIsModalOpen(false);
+                    }}
+                    className="flex-1 rounded-2xl border border-white/15 bg-transparent py-3.5 text-sm font-semibold text-zinc-200 transition hover:bg-white/[0.06]"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 rounded-2xl bg-[#10B981] py-3.5 text-sm font-bold text-white shadow-inner shadow-black/25 transition hover:bg-[#0ea271]"
+                  >
+                    {cartaoEditando ? "Atualizar" : "Salvar"}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         </div>
       ) : null}
