@@ -212,8 +212,8 @@ export function CartoesScreen() {
   const [cartaoEditando, setCartaoEditando] = useState<string | null>(null);
   const [selectedBanco, setSelectedBanco] = useState<string>(BANCO_PADRAO_ID);
   const [nome, setNome] = useState("");
-  const [diaFechamento, setDiaFechamento] = useState(1);
-  const [diaVencimento, setDiaVencimento] = useState(10);
+  const [diaFechamento, setDiaFechamento] = useState("1");
+  const [diaVencimento, setDiaVencimento] = useState("10");
 
   const bancosLista = useMemo(() => bancosOrdenados(), []);
 
@@ -280,15 +280,15 @@ export function CartoesScreen() {
     setCartaoEditando(null);
     setSelectedBanco(BANCO_PADRAO_ID);
     setNome("");
-    setDiaFechamento(1);
-    setDiaVencimento(10);
+    setDiaFechamento("1");
+    setDiaVencimento("10");
   }
 
   const handleEditar = useCallback((cartao: CartaoUsuario) => {
     setSelectedBanco(cartao.banco || "outros");
     setNome(cartao.nome);
-    setDiaFechamento(cartao.diaFechamento);
-    setDiaVencimento(cartao.diaVencimento);
+    setDiaFechamento(String(cartao.diaFechamento));
+    setDiaVencimento(String(cartao.diaVencimento));
     setCartaoEditando(cartao.id);
     setIsModalOpen(true);
   }, []);
@@ -336,8 +336,8 @@ export function CartoesScreen() {
         window.alert("Selecione o banco do cartão.");
         return;
       }
-      const df = Math.min(31, Math.max(1, Math.round(diaFechamento)));
-      const dv = Math.min(31, Math.max(1, Math.round(diaVencimento)));
+      const df = Math.min(31, Math.max(1, Number(diaFechamento) || 1));
+      const dv = Math.min(31, Math.max(1, Number(diaVencimento) || 1));
 
       try {
         if (cartaoEditando) {
@@ -379,6 +379,7 @@ export function CartoesScreen() {
           nome: nome.trim(),
           dia_fechamento: df,
           dia_vencimento: dv,
+          limite: 0,
         };
 
         const { data: inserted, error } = await supabase
@@ -595,17 +596,18 @@ export function CartoesScreen() {
                     </label>
                     <input
                       id="cartao-fechar"
-                      type="number"
-                      min={1}
-                      max={31}
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={2}
                       value={diaFechamento}
                       onChange={(e) =>
                         setDiaFechamento(
-                          Number.parseInt(e.target.value, 10) || 1,
+                          e.target.value.replace(/\D/g, "").slice(0, 2),
                         )
                       }
                       className="mt-1.5 w-full rounded-2xl border border-white/10 bg-[#1a1a1a] px-4 py-3 text-sm tabular-nums text-white outline-none focus:border-[#10B981]/35 focus:ring-2 focus:ring-[#10B981]/25"
-                      required
+                      placeholder="1–31"
+                      autoComplete="off"
                     />
                   </div>
                   <div>
@@ -617,17 +619,18 @@ export function CartoesScreen() {
                     </label>
                     <input
                       id="cartao-venc"
-                      type="number"
-                      min={1}
-                      max={31}
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={2}
                       value={diaVencimento}
                       onChange={(e) =>
                         setDiaVencimento(
-                          Number.parseInt(e.target.value, 10) || 1,
+                          e.target.value.replace(/\D/g, "").slice(0, 2),
                         )
                       }
                       className="mt-1.5 w-full rounded-2xl border border-white/10 bg-[#1a1a1a] px-4 py-3 text-sm tabular-nums text-white outline-none focus:border-[#10B981]/35 focus:ring-2 focus:ring-[#10B981]/25"
-                      required
+                      placeholder="1–31"
+                      autoComplete="off"
                     />
                   </div>
                 </div>
