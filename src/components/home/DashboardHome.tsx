@@ -212,8 +212,10 @@ export function DashboardHome() {
   const [gastosMomPct, setGastosMomPct] = useState(0);
   const [receitasMomPct, setReceitasMomPct] = useState(0);
 
+  // 1. ESTADO DE FILTRO do donut
   type DonutSlice = { name: string; value: number; fill: string };
-  const [donutSlices, setDonutSlices] = useState<DonutSlice[]>([]);
+  type DonutFiltro = "despesas" | "receitas";
+  const [donutFilter, setDonutFilter] = useState<DonutFiltro>("despesas");
 
   const [recentMovementRows, setRecentMovementRows] = useState<LancRow[]>([]);
   const [lancamentosUsuario, setLancamentosUsuario] = useState<LancRow[]>([]);
@@ -235,7 +237,6 @@ export function DashboardHome() {
           setSaldoTotal(0);
           setReceitasMes(0);
           setDespesasMes(0);
-          setDonutSlices([]);
           setRecentMovementRows([]);
           setLancamentosUsuario([]);
           setCartoesUsuario([]);
@@ -326,35 +327,6 @@ export function DashboardHome() {
         setReceitasMomPct(momDeltaPct(recMes, recPrev));
         setGastosMomPct(momDeltaPct(desMes, desPrev));
 
-        const despesasDoMes = rows.filter((row) => {
-          const d = String(row.data ?? "");
-          const tipo = String(row.tipo ?? "").toLowerCase().trim();
-          return isInCalendarMonth(d, cy, cm) && tipo === "despesa";
-        });
-
-        const agregadoPorCategoria = despesasDoMes.reduce<Record<string, number>>(
-          (acc, row) => {
-            const rawTag = row.tag;
-            const categoria =
-              rawTag != null && String(rawTag).trim()
-                ? String(rawTag).trim()
-                : SEM_CATEGORIA_LABEL;
-            acc[categoria] = (acc[categoria] ?? 0) + parseValor(row.valor);
-            return acc;
-          },
-          {},
-        );
-
-        const slices: DonutSlice[] = Object.entries(agregadoPorCategoria)
-          .filter(([, value]) => value > 0)
-          .sort((a, b) => b[1] - a[1])
-          .map(([name, value], i) => ({
-            name,
-            value,
-            fill: DONUT_FILLS[i % DONUT_FILLS.length]!,
-          }));
-        setDonutSlices(slices);
-
         const noMesSelecionado = rows.filter((r) =>
           isInCalendarMonth(String(r.data ?? ""), cy, cm),
         );
@@ -385,16 +357,61 @@ export function DashboardHome() {
     [mesSelecionado, anoSelecionado],
   );
 
-  const donutTotalLabel = useMemo(() => fmtBRL.format(despesasMes), [despesasMes]);
+  // 2. useMemo para os dados do gráfico
+  const donutSlices = useMemo<DonutSlice[]>(() => {
+    const tipoAlvo = donutFilter === "receitas" ? "receita" : "despesa";
+    const doMesFiltrado = lancamentosUsuario.filter((row) => {
+      const d = String(row.data ?? "");
+      const tipo = String(row.tipo ?? "").toLowerCase().trim();
+      return (
+        isInCalendarMonth(d, anoSelecionado, mesSelecionado) && tipo === tipoAlvo
+      );
+    });
+
+    const agregadoPorCategoria = doMesFiltrado.reduce<Record<string, number>>(
+      (acc, row) => {
+        const rawTag = row.tag;
+        const categoria =
+          rawTag != null && String(rawTag).trim()
+            ? String(rawTag).trim()
+            : SEM_CATEGORIA_LABEL;
+        acc[categoria] = (acc[categoria] ?? 0) + parseValor(row.valor);
+        return acc;
+      },
+      {},
+    );
+
+    return Object.entries(agregadoPorCategoria)
+      .filter(([, value]) => value > 0)
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, value], i) => ({
+        name,
+        value,
+        fill: DONUT_FILLS[i % DONUT_FILLS.length]!,
+      }));
+  }, [lancamentosUsuario, donutFilter, anoSelecionado, mesSelecionado]);
+
+  // Valor total central do gráfico
+  const donutTotal = useMemo(() => {
+    if (donutFilter === "receitas") {
+      return donutSlices.reduce((acc, cur) => acc + cur.value, 0);
+    }
+    // Filtra despesa (negativo ou positivo) - manter coerência, soma os valores
+    return donutSlices.reduce((acc, cur) => acc + cur.value, 0);
+  }, [donutSlices, donutFilter]);
+
+  const donutTotalLabel = useMemo(
+    () => fmtBRL.format(donutTotal),
+    [donutTotal],
+  );
 
   const legendRows = useMemo(() => {
-    const total = despesasMes;
-    if (total <= 0) return [];
+    if (donutTotal <= 0) return [];
     return donutSlices.map((row) => ({
       ...row,
-      pct: Math.round((row.value / total) * 100),
+      pct: Math.round((row.value / donutTotal) * 100),
     }));
-  }, [donutSlices, despesasMes]);
+  }, [donutSlices, donutTotal]);
 
   function formatDataCurta(iso: string): string {
     const p = isoDateParts(iso);
@@ -591,10 +608,56 @@ export function DashboardHome() {
           className="flex flex-col gap-3"
         >
           <GlassPanel className="flex flex-col gap-5 p-5">
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="text-base font-semibold text-white">
-                Gastos por categoria
-              </h2>
+            {/* 3 e 4. Cabeçalho Flex + Segmento de Filtros */}
+            <div className="flex flex-row items-center justify-between w-full gap-3 mb-4">
+              <div className="min-w-0">
+                <h2 className="text-base font-semibold leading-tight text-white">
+                  {donutFilter === "receitas" ? (
+                    <>
+                      Receitas por
+                      <br />
+                      Categorias
+                    </>
+                  ) : (
+                    <>
+                      Gastos por
+                      <br />
+                      Categorias
+                    </>
+                  )}
+                </h2>
+              </div>
+              <div
+                role="tablist"
+                className="inline-flex shrink-0 items-center gap-1 rounded-full border border-white/10 bg-white/[0.04] p-1"
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={donutFilter === "despesas"}
+                  onClick={() => setDonutFilter("despesas")}
+                  className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
+                    donutFilter === "despesas"
+                      ? "bg-white/10 text-white"
+                      : "text-zinc-500 hover:text-zinc-300"
+                  }`}
+                >
+                  Despesas
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={donutFilter === "receitas"}
+                  onClick={() => setDonutFilter("receitas")}
+                  className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
+                    donutFilter === "receitas"
+                      ? "bg-white/10 text-white"
+                      : "text-zinc-500 hover:text-zinc-300"
+                  }`}
+                >
+                  Receitas
+                </button>
+              </div>
             </div>
 
             {isLoading ? (
@@ -602,7 +665,7 @@ export function DashboardHome() {
                 <div className="h-36 w-36 animate-pulse rounded-full bg-white/[0.06]" />
                 <p className="text-xs text-zinc-500">Carregando…</p>
               </div>
-            ) : despesasMes <= 0 || donutSlices.length === 0 ? (
+            ) : donutTotal <= 0 || donutSlices.length === 0 ? (
               <div className="flex min-h-[220px] flex-col items-center justify-center gap-6 rounded-2xl border border-white/[0.06] bg-zinc-900/25 px-4 py-8 text-center">
                 <div className="relative mx-auto flex h-[200px] w-full max-w-[240px] items-center justify-center">
                   <div
@@ -620,10 +683,14 @@ export function DashboardHome() {
                 </div>
                 <div className="space-y-1">
                   <p className="text-sm text-zinc-400">
-                    Nenhuma despesa em {periodoLabelCurto}.
+                    {donutFilter === "receitas"
+                      ? `Nenhuma receita em ${periodoLabelCurto}.`
+                      : `Nenhuma despesa em ${periodoLabelCurto}.`}
                   </p>
                   <p className="text-xs text-zinc-600">
-                    Os gastos aparecem aqui conforme você lança no período.
+                    {donutFilter === "receitas"
+                      ? "As receitas aparecem aqui conforme você lança no período."
+                      : "Os gastos aparecem aqui conforme você lança no período."}
                   </p>
                 </div>
               </div>
