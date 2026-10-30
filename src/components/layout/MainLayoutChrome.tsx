@@ -19,7 +19,7 @@ export function MainLayoutChrome({ children }: { children: React.ReactNode }) {
   const larga = ROTAS_LARGAS.some((r) => pathname === r || pathname.startsWith(`${r}/`));
 
   return (
-    <div className="flex min-h-0 w-full flex-1 overflow-hidden">
+    <div className="relative flex min-h-0 w-full flex-1 overflow-hidden">
       <SidebarNav />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <div
@@ -29,7 +29,7 @@ export function MainLayoutChrome({ children }: { children: React.ReactNode }) {
             perfilRota
               ? "overflow-hidden px-0"
               : "overflow-y-auto scroll-smooth px-4"
-          } ${hideBottomNav ? "pb-4" : "pb-[calc(max(0.5rem,env(safe-area-inset-bottom))+5rem)] lg:pb-10"}`}
+          } ${hideBottomNav ? "pb-4" : "pb-[calc(max(0.5rem,env(safe-area-inset-bottom))+6.5rem)] lg:pb-10"}`}
         >
           {children}
         </div>

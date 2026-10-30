@@ -156,14 +156,14 @@ export function DashboardHome() {
             type="button"
             onClick={alternarOculto}
             aria-label={oculto ? "Mostrar valores" : "Ocultar valores"}
-            className="flex h-9 w-9 items-center justify-center rounded-full text-texto-2 hover:bg-superficie"
+            className="vidro flex h-9 w-9 items-center justify-center rounded-full text-texto-2"
           >
             {oculto ? <EyeOff className="h-[18px] w-[18px]" /> : <Eye className="h-[18px] w-[18px]" />}
           </button>
           <Link
             href="/perfil"
             aria-label="Perfil"
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-superficie-2 text-texto-2"
+            className="vidro flex h-9 w-9 items-center justify-center rounded-full text-texto-2"
           >
             <UserRound className="h-[18px] w-[18px]" aria-hidden />
           </Link>
@@ -224,7 +224,7 @@ export function DashboardHome() {
           {resumo && resumo.pendentesRevisao > 0 ? (
             <Link
               href="/importar"
-              className="flex items-center gap-3 rounded-xl bg-alerta/10 px-3 py-2.5 text-sm text-alerta"
+              className="vidro-suave flex items-center gap-3 rounded-xl !border-alerta/25 !bg-alerta/10 px-3 py-2.5 text-sm text-alerta"
             >
               <Inbox className="h-[18px] w-[18px] shrink-0" aria-hidden />
               <span className="flex-1">
@@ -237,7 +237,7 @@ export function DashboardHome() {
           {resumo?.cartaoVencendo ? (
             <Link
               href="/cartoes"
-              className="flex items-center gap-3 rounded-xl bg-superficie px-3 py-2.5 text-sm text-texto-2"
+              className="vidro-suave flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-texto-2"
             >
               <AlertTriangle className="h-[18px] w-[18px] shrink-0 text-alerta" aria-hidden />
               <span className="flex-1">

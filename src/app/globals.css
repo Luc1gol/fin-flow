@@ -28,6 +28,42 @@
   --font-mono: var(--font-geist-mono);
 }
 
+/*
+ * Liquid glass: superfícies translúcidas que desfocam o que está atrás,
+ * com brilho na borda superior. Precisa de algo colorido atrás para aparecer
+ * (ver FundoAmbiente no layout principal).
+ */
+@utility vidro {
+  background: linear-gradient(145deg, rgb(255 255 255 / 0.11), rgb(255 255 255 / 0.035));
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgb(255 255 255 / 0.13);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.2),
+    inset 0 -1px 0 rgb(255 255 255 / 0.04),
+    0 10px 30px rgb(0 0 0 / 0.35);
+}
+
+/* Versão discreta, para cartões e listas (não pesa a leitura). */
+@utility vidro-suave {
+  background: linear-gradient(160deg, rgb(255 255 255 / 0.06), rgb(255 255 255 / 0.025));
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  border: 1px solid rgb(255 255 255 / 0.08);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.07);
+}
+
+/* Vidro tingido com a cor do app: botões principais e o "+". */
+@utility vidro-marca {
+  background: linear-gradient(150deg, rgb(110 163 255 / 0.95), rgb(59 118 234 / 0.9));
+  border: 1px solid rgb(255 255 255 / 0.22);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.4),
+    inset 0 -2px 6px rgb(0 0 0 / 0.12),
+    0 8px 24px rgb(79 140 255 / 0.35);
+  color: #fff;
+}
+
 /* Valores monetários alinham pelos dígitos. */
 .valor {
   font-variant-numeric: tabular-nums;

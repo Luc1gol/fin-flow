@@ -6,7 +6,7 @@ import { formatBRL } from "@/lib/format-currency";
 export function Card({ className = "", ...props }: ComponentPropsWithoutRef<"div">) {
   return (
     <div
-      className={`rounded-2xl border border-borda bg-superficie ${className}`}
+      className={`vidro-suave rounded-2xl ${className}`}
       {...props}
     />
   );
@@ -90,7 +90,7 @@ export function LinhaLista({
   const conteudo = (
     <>
       {icone ? (
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-superficie-2 text-texto-2">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-texto-2 ring-1 ring-inset ring-white/[0.08]">
           {icone}
         </span>
       ) : null}
@@ -126,8 +126,8 @@ export function LinhaLista({
 type VarianteBotao = "primario" | "secundario" | "fantasma";
 
 const ESTILO_BOTAO: Record<VarianteBotao, string> = {
-  primario: "bg-marca text-white hover:bg-marca-forte",
-  secundario: "border border-borda-forte bg-superficie-2 text-texto hover:bg-white/[0.06]",
+  primario: "vidro-marca hover:brightness-110",
+  secundario: "vidro text-texto hover:brightness-125",
   fantasma: "text-texto-2 hover:bg-white/[0.05] hover:text-texto",
 };
 
@@ -162,8 +162,8 @@ export function Chip({
       type="button"
       className={`h-7 shrink-0 touch-manipulation rounded-full px-3 text-xs font-medium transition ${
         ativo
-          ? "bg-marca/15 text-marca"
-          : "border border-borda-forte text-texto-2 hover:text-texto"
+          ? "vidro text-marca"
+          : "border border-borda text-texto-2 hover:text-texto"
       } ${className}`}
       {...props}
     />
@@ -172,4 +172,4 @@ export function Chip({
 
 /** Campo de texto padrão (36px). */
 export const campoClasse =
-  "h-9 w-full rounded-lg border border-borda-forte bg-superficie-2 px-3 text-sm text-texto outline-none transition-colors [color-scheme:dark] placeholder:text-texto-3 focus:border-marca/60";
+  "h-9 w-full rounded-lg border border-borda-forte bg-white/[0.05] px-3 text-sm text-texto outline-none transition-colors [color-scheme:dark] placeholder:text-texto-3 focus:border-marca/60";

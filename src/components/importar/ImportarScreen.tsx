@@ -476,7 +476,7 @@ export function ImportarScreen() {
           </div>
         ) : null}
         <div className="flex items-center gap-3 px-3 py-2.5">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-superficie-2 text-texto-2">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-texto-2 ring-1 ring-inset ring-white/[0.08]">
             <FileUp className="h-4 w-4" aria-hidden />
           </span>
           <div className="min-w-0 flex-1">
@@ -592,8 +592,8 @@ export function ImportarScreen() {
             </div>
           ))}
 
-          <div className="fixed inset-x-0 bottom-[calc(max(0.5rem,env(safe-area-inset-bottom))+4.25rem)] z-40 px-4 lg:sticky lg:bottom-4 lg:px-0">
-            <div className="mx-auto flex max-w-[430px] gap-2 rounded-2xl border border-borda-forte bg-superficie/95 p-2 shadow-xl backdrop-blur-xl lg:max-w-none">
+          <div className="fixed inset-x-0 bottom-[calc(max(0.75rem,env(safe-area-inset-bottom))+4.75rem)] z-40 px-4 lg:sticky lg:bottom-4 lg:px-0">
+            <div className="vidro mx-auto flex max-w-[398px] gap-2 rounded-[22px] p-2 lg:max-w-none">
               <Botao disabled={processando || selecionadas.size === 0} onClick={() => void handleIgnorar()}>
                 Ignorar
               </Botao>
@@ -724,7 +724,7 @@ function LinhaRevisao({
           )}
         </button>
         <button type="button" onClick={onAbrir} className="flex min-w-0 flex-1 items-center gap-3 text-left">
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-superficie-2 text-texto-2">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-texto-2 ring-1 ring-inset ring-white/[0.08]">
             <IconeCategoria categoria={edicao.categoria} transferencia={transferencia} />
           </span>
           <span className="min-w-0 flex-1">

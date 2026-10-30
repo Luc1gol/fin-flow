@@ -55,7 +55,7 @@ function ItemBarra({ item, pathname }: { item: ItemNav; pathname: string }) {
     <Link
       href={item.href}
       aria-current={ativo ? "page" : undefined}
-      className={`flex min-h-14 flex-1 touch-manipulation select-none flex-col items-center justify-center gap-1 transition-transform active:scale-90 [-webkit-tap-highlight-color:transparent] ${
+      className={`flex h-14 flex-1 touch-manipulation select-none flex-col items-center justify-center gap-1 transition-transform active:scale-90 [-webkit-tap-highlight-color:transparent] ${
         ativo ? "text-marca" : "text-texto-3"
       }`}
     >
@@ -70,17 +70,18 @@ export function BottomNav() {
 
   return (
     <nav
-      className="fixed inset-x-0 bottom-0 z-50 border-t border-borda bg-fundo/95 backdrop-blur-xl lg:hidden"
+      className="fixed inset-x-0 bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-50 px-4 lg:hidden"
       aria-label="Navegação principal"
     >
-      <div className="mx-auto flex max-w-[430px] items-center px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-1">
+      {/* Barra flutuante de vidro, no estilo das abas do iOS. */}
+      <div className="vidro mx-auto flex h-16 max-w-[398px] items-center rounded-[28px] px-1.5">
         <ItemBarra item={a!} pathname={pathname} />
         <ItemBarra item={b!} pathname={pathname} />
         <div className="flex flex-1 justify-center">
           <Link
             href="/lancar"
             aria-label="Novo lançamento"
-            className="flex h-12 w-12 touch-manipulation items-center justify-center rounded-full bg-marca text-white shadow-lg shadow-marca/25 transition-transform active:scale-90 [-webkit-tap-highlight-color:transparent]"
+            className="vidro-marca flex h-12 w-12 touch-manipulation items-center justify-center rounded-full transition-transform active:scale-90 [-webkit-tap-highlight-color:transparent]"
           >
             <Plus className="h-6 w-6" strokeWidth={2.4} aria-hidden />
           </Link>
