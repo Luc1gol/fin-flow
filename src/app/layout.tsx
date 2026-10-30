@@ -29,7 +29,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   // Ocupa a tela toda no iPhone; as áreas seguras são tratadas com env(safe-area-inset-*).
   viewportFit: "cover",
-  themeColor: "#121212",
+  themeColor: "#0e0e10",
 };
 
 export default function RootLayout({
@@ -42,7 +42,7 @@ export default function RootLayout({
       lang="pt-BR"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-dvh bg-[#121212] font-sans text-zinc-50">
+      <body className="min-h-dvh bg-fundo font-sans text-texto">
         {children}
       </body>
     </html>

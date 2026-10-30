@@ -2,64 +2,91 @@
 
 import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, CreditCard, Home, PlusCircle, ScrollText, type LucideIcon } from "lucide-react";
+import {
+  ChartPie,
+  CreditCard,
+  Home,
+  Inbox,
+  List,
+  Plus,
+  Settings,
+  type LucideIcon,
+} from "lucide-react";
 
-const items = [
+type ItemNav = { href: string; label: string; Icon: LucideIcon };
+
+export const ITENS_NAV: ItemNav[] = [
   { href: "/inicio", label: "Início", Icon: Home },
-  { href: "/lancar", label: "Lançar", Icon: PlusCircle },
+  { href: "/extrato", label: "Extrato", Icon: List },
   { href: "/cartoes", label: "Cartões", Icon: CreditCard },
-  { href: "/extrato", label: "Extrato", Icon: ScrollText },
-  { href: "/relatorios", label: "Relatórios", Icon: BarChart3 },
-] as const;
+  { href: "/relatorios", label: "Análise", Icon: ChartPie },
+];
 
-function isActive(pathname: string, href: string) {
+/** Só no menu lateral (desktop); no celular ficam no Início e no perfil. */
+export const ITENS_NAV_EXTRAS: ItemNav[] = [
+  { href: "/importar", label: "Revisar", Icon: Inbox },
+  { href: "/perfil", label: "Perfil", Icon: Settings },
+];
+
+export function rotaAtiva(pathname: string, href: string) {
   if (href === "/inicio") return pathname === "/inicio" || pathname === "/";
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-/** Conteúdo do item: acende assim que é tocado, antes mesmo da página carregar. */
-function ItemConteudo({ label, Icon, active }: { label: string; Icon: LucideIcon; active: boolean }) {
+/** Ícone + rótulo; acende assim que é tocado, antes da página carregar. */
+function ConteudoItem({ item, ativo }: { item: ItemNav; ativo: boolean }) {
   const { pending } = useLinkStatus();
-  const aceso = active || pending;
+  const { Icon, label } = item;
   return (
     <>
-      <span
-        className={`flex h-8 w-14 items-center justify-center rounded-full transition-colors duration-150 ${
-          aceso ? "bg-[#10B981]/15" : ""
-        } ${pending ? "animate-pulse" : ""}`}
-      >
-        <Icon className="h-6 w-6 shrink-0 stroke-[1.75]" aria-hidden />
-      </span>
-      <span className="truncate text-[11px] font-medium">{label}</span>
+      <Icon
+        className={`h-[22px] w-[22px] ${pending ? "animate-pulse" : ""}`}
+        strokeWidth={ativo || pending ? 2.2 : 1.8}
+        aria-hidden
+      />
+      <span className="text-[10px] font-medium">{label}</span>
     </>
+  );
+}
+
+function ItemBarra({ item, pathname }: { item: ItemNav; pathname: string }) {
+  const ativo = rotaAtiva(pathname, item.href);
+  return (
+    <Link
+      href={item.href}
+      aria-current={ativo ? "page" : undefined}
+      className={`flex min-h-14 flex-1 touch-manipulation select-none flex-col items-center justify-center gap-1 transition-transform active:scale-90 [-webkit-tap-highlight-color:transparent] ${
+        ativo ? "text-marca" : "text-texto-3"
+      }`}
+    >
+      <ConteudoItem item={item} ativo={ativo} />
+    </Link>
   );
 }
 
 export function BottomNav() {
   const pathname = usePathname();
+  const [a, b, c, d] = ITENS_NAV;
 
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 z-50 border-t border-white/10 bg-[#121212]/95 backdrop-blur-xl"
+      className="fixed inset-x-0 bottom-0 z-50 border-t border-borda bg-fundo/95 backdrop-blur-xl lg:hidden"
       aria-label="Navegação principal"
     >
-      <div className="mx-auto flex max-w-[430px] items-stretch justify-around px-1 pt-1.5 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-        {items.map(({ href, label, Icon }) => {
-          const active = isActive(pathname, href);
-          return (
-            <Link
-              key={href}
-              href={href}
-              aria-current={active ? "page" : undefined}
-              // touch-manipulation: o toque vale na hora, sem esperar por duplo toque/zoom do iOS.
-              className={`flex min-h-[3.75rem] min-w-0 flex-1 touch-manipulation select-none flex-col items-center justify-center gap-1 rounded-2xl px-1 transition-transform active:scale-95 [-webkit-tap-highlight-color:transparent] ${
-                active ? "text-[#10B981]" : "text-zinc-400"
-              }`}
-            >
-              <ItemConteudo label={label} Icon={Icon} active={active} />
-            </Link>
-          );
-        })}
+      <div className="mx-auto flex max-w-[430px] items-center px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-1">
+        <ItemBarra item={a!} pathname={pathname} />
+        <ItemBarra item={b!} pathname={pathname} />
+        <div className="flex flex-1 justify-center">
+          <Link
+            href="/lancar"
+            aria-label="Novo lançamento"
+            className="flex h-12 w-12 touch-manipulation items-center justify-center rounded-full bg-marca text-white shadow-lg shadow-marca/25 transition-transform active:scale-90 [-webkit-tap-highlight-color:transparent]"
+          >
+            <Plus className="h-6 w-6" strokeWidth={2.4} aria-hidden />
+          </Link>
+        </div>
+        <ItemBarra item={c!} pathname={pathname} />
+        <ItemBarra item={d!} pathname={pathname} />
       </div>
     </nav>
   );

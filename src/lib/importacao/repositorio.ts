@@ -5,6 +5,7 @@ import {
 } from "@/lib/conta-cartao-lancamento";
 import {
   chaveTransacao,
+  classificarTransacao,
   type MeioMovimento,
   type RegraUsuario,
   type TipoMovimento,
@@ -103,7 +104,8 @@ export async function carregarRegras(): Promise<Map<string, RegraUsuario>> {
 
 /**
  * Grava as transações do arquivo na fila "A revisar".
- * Transações já importadas antes (mesmo FITID na mesma conta) são ignoradas.
+ * Transações já importadas antes (mesmo FITID ou mesma data e valor) são ignoradas.
+ * Antes disso, usa o arquivo para dar nome às "Compras no débito" que vieram do banco sem nome.
  */
 export async function importarExtrato(params: {
   conta: Conta;
@@ -111,20 +113,109 @@ export async function importarExtrato(params: {
   arquivoNome: string;
   nomesTitular: string[];
   regras: ReadonlyMap<string, RegraUsuario>;
-}): Promise<{ novas: number; duplicadas: number }> {
-  return enfileirarTransacoes(supabase, {
-    contaId: params.conta.id,
-    origem: params.arquivoNome,
-    transacoes: params.extrato.transacoes.map((t) => ({
-      idExterno: t.fitid,
-      data: t.data,
-      valor: t.valor,
-      memo: t.memo,
-    })),
+}): Promise<{ novas: number; duplicadas: number; nomesPreenchidos: number }> {
+  const opcoes = {
     nomesTitular: params.nomesTitular,
     regras: params.regras,
     cartaoCredito: params.conta.tipo === "cartao_credito",
+  };
+  const { usados, preenchidos } = await preencherNomesDebito(
+    params.conta.id,
+    params.extrato.transacoes,
+    opcoes,
+  );
+  const resultado = await enfileirarTransacoes(supabase, {
+    contaId: params.conta.id,
+    origem: params.arquivoNome,
+    transacoes: params.extrato.transacoes
+      .filter((t) => !usados.has(t.fitid))
+      .map((t) => ({ idExterno: t.fitid, data: t.data, valor: t.valor, memo: t.memo })),
+    ...opcoes,
+    ignorarIguaisJaNaFila: true,
   });
+  return { ...resultado, nomesPreenchidos: preenchidos };
+}
+
+const DEBITO_SEM_NOME = "Compra no débito";
+
+/**
+ * O Open Finance do C6 manda compras no débito sem o nome da loja; o OFX traz o nome.
+ * Casa cada compra do arquivo com a transação do banco de mesmo valor (mesmo dia ou
+ * um dia de diferença) e copia o nome — na fila de revisão e nos lançamentos já confirmados.
+ */
+async function preencherNomesDebito(
+  contaId: string,
+  transacoes: OfxExtrato["transacoes"],
+  opcoes: Parameters<typeof classificarTransacao>[2],
+): Promise<{ usados: Set<string>; preenchidos: number }> {
+  const usados = new Set<string>();
+  const compras = transacoes.filter((t) => t.valor < 0);
+  if (compras.length === 0) return { usados, preenchidos: 0 };
+  const datas = compras.map((t) => t.data).sort();
+  const desde = deslocarDias(datas[0]!, -1);
+  const ate = deslocarDias(datas[datas.length - 1]!, 1);
+
+  const [fila, lancs] = await Promise.all([
+    supabase
+      .from("transacoes_importadas")
+      .select("id, data, valor, sugestao_categoria")
+      .eq("conta_id", contaId)
+      .eq("status", "pendente")
+      .eq("sugestao_descricao", DEBITO_SEM_NOME)
+      .gte("data", desde)
+      .lte("data", ate),
+    supabase
+      .from("lancamentos")
+      .select("id, data, valor, tag")
+      .eq("conta_id", contaId)
+      .eq("descricao", DEBITO_SEM_NOME)
+      .gte("data", desde)
+      .lte("data", ate),
+  ]);
+  if (fila.error) throw fila.error;
+  if (lancs.error) throw lancs.error;
+
+  const filaLivre = [...(fila.data ?? [])];
+  const lancLivre = [...(lancs.data ?? [])];
+  const casa = (data: string, valor: number) => (r: { data: string; valor: unknown }) =>
+    Math.abs(Math.abs(Number(r.valor)) - Math.abs(valor)) < 0.005 &&
+    Math.abs(diffDias(String(r.data), data)) <= 1;
+
+  const atualizacoes: PromiseLike<unknown>[] = [];
+  for (const t of compras) {
+    const s = classificarTransacao(t.memo, t.valor, opcoes);
+    if (s.meio !== "debito" || s.descricao === DEBITO_SEM_NOME) continue;
+
+    const iFila = filaLivre.findIndex(casa(t.data, t.valor));
+    if (iFila >= 0) {
+      const alvo = filaLivre.splice(iFila, 1)[0]!;
+      usados.add(t.fitid);
+      atualizacoes.push(
+        supabase
+          .from("transacoes_importadas")
+          .update({
+            memo: t.memo,
+            sugestao_descricao: s.descricao,
+            sugestao_categoria: alvo.sugestao_categoria ?? s.categoria,
+          })
+          .eq("id", alvo.id),
+      );
+      continue;
+    }
+    const iLanc = lancLivre.findIndex(casa(t.data, t.valor));
+    if (iLanc >= 0) {
+      const alvo = lancLivre.splice(iLanc, 1)[0]!;
+      usados.add(t.fitid);
+      atualizacoes.push(
+        supabase
+          .from("lancamentos")
+          .update({ descricao: s.descricao, tag: alvo.tag ?? s.categoria })
+          .eq("id", alvo.id),
+      );
+    }
+  }
+  await Promise.all(atualizacoes);
+  return { usados, preenchidos: usados.size };
 }
 
 /** Pede ao servidor para buscar as transações novas do banco (Pluggy). */

@@ -3,819 +3,347 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
+  AlertTriangle,
   ArrowDownLeft,
-  ArrowDownRight,
-  ArrowUpLeft,
   ArrowUpRight,
+  ChevronLeft,
+  ChevronRight,
+  Eye,
+  EyeOff,
+  Inbox,
+  UserRound,
 } from "lucide-react";
-import { AppTopBar } from "@/components/layout/AppTopBar";
 import { useDashboardPeriod } from "@/components/layout/dashboard-period-context";
-import { GlassPanel } from "@/components/ui/glass-panel";
-import { SpendingDonutClient } from "@/components/home/SpendingDonutClient";
-import { VerMetasButton } from "@/components/home/VerMetasButton";
-import { ImportantNoticesHub, type DashboardAviso } from "@/components/home/ImportantNoticesHub";
-import { supabase } from "@/lib/supabase";
+import { Card, Chip, LinhaLista, Secao, Valor } from "@/components/ui/base";
+import { carregarResumoInicio, type MovimentoResumo, type ResumoInicio } from "@/lib/dados/inicio";
+import { CORES_CATEGORIA } from "@/lib/icone-categoria";
+import { IconeCategoria } from "@/components/ui/IconeCategoria";
 
-const VALOR_OCULTO = "••••";
+const MESES = [
+  "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+  "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
+];
 
-/** Mesmo formato que formatBRL, explícito conforme especificação. */
-const fmtBRL = new Intl.NumberFormat("pt-BR", {
-  style: "currency",
-  currency: "BRL",
-});
+const CHAVE_OCULTAR = "finflow:ocultar-valores";
+const MAX_FATIAS = 5;
 
-function parseValor(v: unknown): number {
-  if (typeof v === "number" && Number.isFinite(v)) return v;
-  const n = Number.parseFloat(String(v ?? "0"));
-  return Number.isFinite(n) ? n : 0;
-}
+type Fatia = { nome: string; valor: number; pct: number; cor: string };
 
-function isoDateParts(iso: string): [number, number, number] | null {
-  const s = iso.slice(0, 10);
-  const [y, m, d] = s.split("-").map((x) => Number.parseInt(x, 10));
-  if (
-    !Number.isFinite(y) ||
-    !Number.isFinite(m) ||
-    !Number.isFinite(d) ||
-    m < 1 ||
-    m > 12
-  ) {
-    return null;
+/** Agrupa por categoria, mantém as maiores e junta o resto em "Outros". */
+function fatiasPorCategoria(movs: MovimentoResumo[], tipo: "despesa" | "receita"): Fatia[] {
+  const soma = new Map<string, number>();
+  for (const m of movs) {
+    if (m.tipo !== tipo) continue;
+    const k = m.categoria?.trim() || "Sem categoria";
+    soma.set(k, (soma.get(k) ?? 0) + m.valor);
   }
-  return [y, m, d];
+  const total = [...soma.values()].reduce((a, b) => a + b, 0);
+  if (total <= 0) return [];
+  const ordenadas = [...soma.entries()].sort((a, b) => b[1] - a[1]);
+  const principais = ordenadas.slice(0, MAX_FATIAS);
+  const resto = ordenadas.slice(MAX_FATIAS).reduce((a, [, v]) => a + v, 0);
+  if (resto > 0) principais.push(["Outros", resto]);
+  return principais.map(([nome, valor], i) => ({
+    nome,
+    valor,
+    pct: Math.round((valor / total) * 100),
+    cor: CORES_CATEGORIA[Math.min(i, CORES_CATEGORIA.length - 1)]!,
+  }));
 }
 
-function isInCalendarMonth(isoDate: string, year: number, monthIndex0: number) {
-  const p = isoDateParts(isoDate);
-  if (!p) return false;
-  return p[0] === year && p[1] - 1 === monthIndex0;
-}
-
-function previousMonth(year: number, monthIndex0: number) {
-  return monthIndex0 === 0
-    ? { y: year - 1, m: 11 }
-    : { y: year, m: monthIndex0 - 1 };
-}
-
-function momDeltaPct(current: number, previous: number): number {
-  if (previous <= 0) return current <= 0 ? 0 : 100;
-  return Math.round(((current - previous) / previous) * 100);
-}
-
-const SEM_CATEGORIA_LABEL = "Sem categoria";
-
-const DONUT_FILLS = [
-  "#EF4444",
-  "#3B82F6",
-  "#A78BFA",
-  "#38BDF8",
-  "#FBBF24",
-  "#F472B6",
-  "#34D399",
-  "#FB923C",
-  "#94A3B8",
-] as const;
-
-type LancRow = {
-  id: string;
-  tipo: string;
-  valor: number | string;
-  data: string;
-  tag: string | null;
-  descricao: string | null;
-  tags_extras?: unknown;
-};
-
-type CartaoUsuarioDashboard = {
-  id: string;
-  nome: string;
-  diaFechamento: number;
-  diaVencimento: number;
-};
-
-function parseIntSafeCartao(v: unknown): number {
-  const n =
-    typeof v === "number" ? Math.trunc(v) : Number.parseInt(String(v ?? "0"), 10);
-  return Number.isFinite(n) ? n : 0;
-}
-
-function mapCartaoDashboard(row: Record<string, unknown>): CartaoUsuarioDashboard {
-  const df = parseIntSafeCartao(row.dia_fechamento);
-  const dv = parseIntSafeCartao(row.dia_vencimento);
-  return {
-    id: String(row.id),
-    nome: String(row.nome ?? "").trim(),
-    diaFechamento: Math.min(31, Math.max(1, df)),
-    diaVencimento: Math.min(31, Math.max(1, dv)),
-  };
-}
-
-function GastosMomHint({
-  deltaPct,
-  isVisible,
-}: {
-  deltaPct: number;
-  isVisible: boolean;
-}) {
-  if (!isVisible) {
-    return (
-      <p className="mt-2 text-xs leading-tight tracking-widest text-zinc-500">
-        {VALOR_OCULTO}
-      </p>
-    );
-  }
-
-  const abs = Math.abs(deltaPct);
-  if (deltaPct === 0) {
-    return (
-      <p className="mt-2 text-xs leading-tight text-zinc-500">
-        Estável vs mês passado
-      </p>
-    );
-  }
-  if (deltaPct < 0) {
-    return (
-      <p className="mt-2 flex items-center gap-1.5 text-xs leading-tight text-[#10B981]">
-        <ArrowDownRight className="h-3.5 w-3.5 shrink-0" aria-hidden />
-        <span>{abs}% menor que o mês passado</span>
-      </p>
-    );
-  }
-  return (
-    <p className="mt-2 flex items-center gap-1.5 text-xs leading-tight text-[#EF4444]">
-      <ArrowUpRight className="h-3.5 w-3.5 shrink-0" aria-hidden />
-      <span>{abs}% maior que o mês passado</span>
-    </p>
-  );
-}
-
-function RecebimentosMomHint({
-  deltaPct,
-  isVisible,
-}: {
-  deltaPct: number;
-  isVisible: boolean;
-}) {
-  if (!isVisible) {
-    return (
-      <p className="mt-2 text-xs leading-tight tracking-widest text-zinc-500">
-        {VALOR_OCULTO}
-      </p>
-    );
-  }
-
-  const abs = Math.abs(deltaPct);
-  if (deltaPct === 0) {
-    return (
-      <p className="mt-2 text-xs leading-tight text-zinc-500">
-        Estável vs mês passado
-      </p>
-    );
-  }
-  if (deltaPct > 0) {
-    return (
-      <p className="mt-2 flex items-center gap-1.5 text-xs leading-tight text-[#10B981]">
-        <ArrowUpLeft className="h-3.5 w-3.5 shrink-0" aria-hidden />
-        <span>{abs}% maior que o mês passado</span>
-      </p>
-    );
-  }
-  return (
-    <p className="mt-2 flex items-center gap-1.5 text-xs leading-tight text-[#EF4444]">
-      <ArrowDownRight className="h-3.5 w-3.5 shrink-0" aria-hidden />
-      <span>{abs}% menor que o mês passado</span>
-    </p>
-  );
-}
-
-function AmountSkeleton({ className }: { className?: string }) {
-  return (
-    <span
-      className={`inline-block animate-pulse rounded-lg bg-white/[0.08] align-middle ${className ?? ""}`}
-      aria-hidden
-    />
-  );
+function dataCurta(iso: string) {
+  const [, m, d] = iso.split("-");
+  return `${d}/${m}`;
 }
 
 export function DashboardHome() {
-  const [isVisible, setIsVisible] = useState(true);
-  const { period } = useDashboardPeriod();
-  const mesSelecionado = period.monthIndex;
-  const anoSelecionado = period.year;
-
-  const [saldoTotal, setSaldoTotal] = useState(0);
-  const [receitasMes, setReceitasMes] = useState(0);
-  const [despesasMes, setDespesasMes] = useState(0);
-  const [nomeSaudacao, setNomeSaudacao] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
-
-  const [gastosMomPct, setGastosMomPct] = useState(0);
-  const [receitasMomPct, setReceitasMomPct] = useState(0);
-
-  // 1. ESTADO DE FILTRO do donut
-  type DonutSlice = { name: string; value: number; fill: string };
-  type DonutFiltro = "despesas" | "receitas";
-  const [donutFilter, setDonutFilter] = useState<DonutFiltro>("despesas");
-
-  const [recentMovementRows, setRecentMovementRows] = useState<LancRow[]>([]);
-  const [lancamentosUsuario, setLancamentosUsuario] = useState<LancRow[]>([]);
-  const [cartoesUsuario, setCartoesUsuario] = useState<CartaoUsuarioDashboard[]>(
-    [],
-  );
+  const { period, setPeriod } = useDashboardPeriod();
+  const chave = `${period.year}-${period.monthIndex}`;
+  const [dados, setDados] = useState<{ chave: string; resumo: ResumoInicio } | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
+  const [oculto, setOculto] = useState(() => {
+    try {
+      return typeof window !== "undefined" && localStorage.getItem(CHAVE_OCULTAR) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [tipoGrafico, setTipoGrafico] = useState<"despesa" | "receita">("despesa");
 
   useEffect(() => {
-    async function fetchDashboardData() {
-      setIsLoading(true);
+    let cancelado = false;
+    carregarResumoInicio(period.year, period.monthIndex)
+      .then((resumo) => {
+        if (!cancelado) {
+          setDados({ chave, resumo });
+          setErro(null);
+        }
+      })
+      .catch((e) => {
+        console.error(e);
+        if (!cancelado) setErro("Não foi possível carregar seus dados.");
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, [chave, period.year, period.monthIndex]);
+
+  const carregando = dados?.chave !== chave;
+  const resumo = dados?.resumo;
+
+  function alternarOculto() {
+    setOculto((v) => {
       try {
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser();
-        if (userError || !user) {
-          console.error(userError);
-          setNomeSaudacao("");
-          setSaldoTotal(0);
-          setReceitasMes(0);
-          setDespesasMes(0);
-          setRecentMovementRows([]);
-          setLancamentosUsuario([]);
-          setCartoesUsuario([]);
-          setReceitasMomPct(0);
-          setGastosMomPct(0);
-          return;
-        }
-
-        const prefixoEmail =
-          user.email?.split("@")[0]?.trim().replace(/\./g, " ") ?? "";
-
-        const [lacRes, cartRes, profRes] = await Promise.all([
-          supabase
-            .from("lancamentos")
-            .select("id, tipo, valor, data, tag, descricao, tags_extras")
-            .eq("user_id", user.id),
-          supabase
-            .from("cartoes")
-            .select("id, nome, dia_fechamento, dia_vencimento")
-            .eq("user_id", user.id),
-          supabase
-            .from("profiles")
-            .select("apelido, nome_completo")
-            .eq("id", user.id)
-            .single(),
-        ]);
-
-        if (profRes.error) {
-          console.error(profRes.error);
-        }
-
-        const perfil = profRes.data as
-          | { apelido?: string | null; nome_completo?: string | null }
-          | null
-          | undefined;
-        const nomeExibicao =
-          perfil?.apelido ||
-          perfil?.nome_completo ||
-          prefixoEmail ||
-          "Usuário";
-        setNomeSaudacao(nomeExibicao);
-
-        if (lacRes.error) {
-          console.error(lacRes.error);
-          setLancamentosUsuario([]);
-          setCartoesUsuario([]);
-          return;
-        }
-
-        const rows = (lacRes.data ?? []) as LancRow[];
-        setLancamentosUsuario(rows);
-
-        if (cartRes.error) {
-          console.error(cartRes.error);
-          setCartoesUsuario([]);
-        } else {
-          const rawCart = (cartRes.data ?? []) as Record<string, unknown>[];
-          setCartoesUsuario(rawCart.map(mapCartaoDashboard));
-        }
-        const cy = anoSelecionado;
-        const cm = mesSelecionado;
-        const prev = previousMonth(cy, cm);
-
-        let recMes = 0;
-        let desMes = 0;
-        let recPrev = 0;
-        let desPrev = 0;
-
-        for (const row of rows) {
-          const tipo = String(row.tipo ?? "").toLowerCase().trim();
-          const v = parseValor(row.valor);
-          const d = String(row.data ?? "");
-
-          if (isInCalendarMonth(d, cy, cm)) {
-            if (tipo === "receita") recMes += v;
-            else if (tipo === "despesa") desMes += v;
-          }
-
-          if (isInCalendarMonth(d, prev.y, prev.m)) {
-            if (tipo === "receita") recPrev += v;
-            else if (tipo === "despesa") desPrev += v;
-          }
-        }
-
-        setSaldoTotal(recMes - desMes);
-        setReceitasMes(recMes);
-        setDespesasMes(desMes);
-        setReceitasMomPct(momDeltaPct(recMes, recPrev));
-        setGastosMomPct(momDeltaPct(desMes, desPrev));
-
-        const noMesSelecionado = rows.filter((r) =>
-          isInCalendarMonth(String(r.data ?? ""), cy, cm),
-        );
-        const sortedTx = [...noMesSelecionado].sort((a, b) => {
-          const c = String(b.data).localeCompare(String(a.data));
-          if (c !== 0) return c;
-          return String(b.id).localeCompare(String(a.id));
-        });
-        setRecentMovementRows(sortedTx.slice(0, 8));
-      } finally {
-        setIsLoading(false);
-      }
-    }
-
-    fetchDashboardData();
-  }, [mesSelecionado, anoSelecionado]);
-
-  const saldoFmt = useMemo(() => fmtBRL.format(saldoTotal), [saldoTotal]);
-  const incFmt = useMemo(() => fmtBRL.format(receitasMes), [receitasMes]);
-  const gastosFmt = useMemo(() => fmtBRL.format(despesasMes), [despesasMes]);
-
-  const periodoLabelCurto = useMemo(
-    () =>
-      new Intl.DateTimeFormat("pt-BR", {
-        month: "short",
-        year: "numeric",
-      }).format(new Date(anoSelecionado, mesSelecionado, 1)),
-    [mesSelecionado, anoSelecionado],
-  );
-
-  // 2. useMemo para os dados do gráfico
-  const donutSlices = useMemo<DonutSlice[]>(() => {
-    const tipoAlvo = donutFilter === "receitas" ? "receita" : "despesa";
-    const doMesFiltrado = lancamentosUsuario.filter((row) => {
-      const d = String(row.data ?? "");
-      const tipo = String(row.tipo ?? "").toLowerCase().trim();
-      return (
-        isInCalendarMonth(d, anoSelecionado, mesSelecionado) && tipo === tipoAlvo
-      );
+        localStorage.setItem(CHAVE_OCULTAR, v ? "0" : "1");
+      } catch {}
+      return !v;
     });
-
-    const agregadoPorCategoria = doMesFiltrado.reduce<Record<string, number>>(
-      (acc, row) => {
-        const rawTag = row.tag;
-        const categoria =
-          rawTag != null && String(rawTag).trim()
-            ? String(rawTag).trim()
-            : SEM_CATEGORIA_LABEL;
-        acc[categoria] = (acc[categoria] ?? 0) + parseValor(row.valor);
-        return acc;
-      },
-      {},
-    );
-
-    return Object.entries(agregadoPorCategoria)
-      .filter(([, value]) => value > 0)
-      .sort((a, b) => b[1] - a[1])
-      .map(([name, value], i) => ({
-        name,
-        value,
-        fill: DONUT_FILLS[i % DONUT_FILLS.length]!,
-      }));
-  }, [lancamentosUsuario, donutFilter, anoSelecionado, mesSelecionado]);
-
-  // Valor total central do gráfico
-  const donutTotal = useMemo(() => {
-    if (donutFilter === "receitas") {
-      return donutSlices.reduce((acc, cur) => acc + cur.value, 0);
-    }
-    // Filtra despesa (negativo ou positivo) - manter coerência, soma os valores
-    return donutSlices.reduce((acc, cur) => acc + cur.value, 0);
-  }, [donutSlices, donutFilter]);
-
-  const donutTotalLabel = useMemo(
-    () => fmtBRL.format(donutTotal),
-    [donutTotal],
-  );
-
-  const legendRows = useMemo(() => {
-    if (donutTotal <= 0) return [];
-    return donutSlices.map((row) => ({
-      ...row,
-      pct: Math.round((row.value / donutTotal) * 100),
-    }));
-  }, [donutSlices, donutTotal]);
-
-  function formatDataCurta(iso: string): string {
-    const p = isoDateParts(iso);
-    if (!p) return iso;
-    const [y, m, d] = p;
-    try {
-      return new Intl.DateTimeFormat("pt-BR", {
-        day: "2-digit",
-        month: "short",
-      }).format(new Date(y, m - 1, d));
-    } catch {
-      return iso;
-    }
   }
 
-  const showMomHints = !isLoading;
+  function mudarMes(delta: number) {
+    const d = new Date(period.year, period.monthIndex + delta, 1);
+    setPeriod({ year: d.getFullYear(), monthIndex: d.getMonth() });
+  }
 
-  const avisos = useMemo((): DashboardAviso[] => {
-    const alertasGerados: DashboardAviso[] = [];
-    const hoje = new Date().getDate();
-
-    cartoesUsuario.forEach((cartao) => {
-      const nomeExibicao = cartao.nome.trim() || "cartão";
-      const dv = cartao.diaVencimento;
-      if (hoje >= dv - 3 && hoje <= dv) {
-        alertasGerados.push({
-          id: `vencimento-${cartao.id}`,
-          titulo: "Fatura próxima do vencimento",
-          subtitulo: `O vencimento do seu cartão ${nomeExibicao} é dia ${dv}. Evite juros!`,
-          icon: "AlertTriangle",
-          color: "orange",
-        });
-      }
-    });
-
-    cartoesUsuario.forEach((cartao) => {
-      const nomeExibicao = cartao.nome.trim() || "cartão";
-      if (hoje === cartao.diaFechamento + 1) {
-        alertasGerados.push({
-          id: `melhor-dia-${cartao.id}`,
-          titulo: "Melhor dia de compra!",
-          subtitulo: `As compras feitas hoje no seu ${nomeExibicao} só virão na próxima fatura.`,
-          icon: "Zap",
-          color: "emerald",
-        });
-      }
-    });
-
-    if (hoje >= 1 && hoje <= 3) {
-      alertasGerados.push({
-        id: "aviso-mes",
-        titulo: "Início de mês: revise suas datas",
-        subtitulo:
-          "Confira se o fechamento e vencimento dos seus cartões continuam os mesmos.",
-        icon: "RefreshCw",
-        color: "blue",
-      });
-    }
-
-    return alertasGerados.length > 0 ? [alertasGerados[0]] : [];
-  }, [cartoesUsuario]);
+  const hoje = new Date();
+  const mesAtual = period.year === hoje.getFullYear() && period.monthIndex === hoje.getMonth();
+  const fatias = useMemo(
+    () => fatiasPorCategoria(resumo?.movimentos ?? [], tipoGrafico),
+    [resumo, tipoGrafico],
+  );
+  const resultado = (resumo?.entradas ?? 0) - (resumo?.saidas ?? 0);
+  const variacaoSaidas =
+    resumo && resumo.saidasMesAnterior > 0
+      ? Math.round(((resumo.saidas - resumo.saidasMesAnterior) / resumo.saidasMesAnterior) * 100)
+      : null;
 
   return (
-    <>
-      <AppTopBar
-        greetingName={nomeSaudacao}
-        greetingLoading={isLoading}
-      />
-      <main className="flex flex-1 flex-col gap-6 pb-12">
-        {avisos.length > 0 ? <ImportantNoticesHub avisos={avisos} /> : null}
+    <div className="flex flex-col gap-5 pb-6">
+      {/* Cabeçalho: saudação, mês e ações */}
+      <header className="flex items-center justify-between">
+        <div className="min-w-0">
+          <p className="text-xs text-texto-3">Olá, {resumo?.nome || "…"}</p>
+          <div className="-ml-1.5 flex items-center">
+            <button
+              type="button"
+              onClick={() => mudarMes(-1)}
+              aria-label="Mês anterior"
+              className="flex h-8 w-7 items-center justify-center text-texto-2"
+            >
+              <ChevronLeft className="h-4 w-4" aria-hidden />
+            </button>
+            <button
+              type="button"
+              onClick={() => setPeriod({ year: hoje.getFullYear(), monthIndex: hoje.getMonth() })}
+              className="text-base font-semibold text-texto"
+              title="Voltar para o mês atual"
+            >
+              {MESES[period.monthIndex]}
+              {period.year !== hoje.getFullYear() ? ` ${period.year}` : ""}
+            </button>
+            <button
+              type="button"
+              onClick={() => mudarMes(1)}
+              aria-label="Próximo mês"
+              className="flex h-8 w-7 items-center justify-center text-texto-2"
+            >
+              <ChevronRight className="h-4 w-4" aria-hidden />
+            </button>
+          </div>
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={alternarOculto}
+            aria-label={oculto ? "Mostrar valores" : "Ocultar valores"}
+            className="flex h-9 w-9 items-center justify-center rounded-full text-texto-2 hover:bg-superficie"
+          >
+            {oculto ? <EyeOff className="h-[18px] w-[18px]" /> : <Eye className="h-[18px] w-[18px]" />}
+          </button>
+          <Link
+            href="/perfil"
+            aria-label="Perfil"
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-superficie-2 text-texto-2"
+          >
+            <UserRound className="h-[18px] w-[18px]" aria-hidden />
+          </Link>
+        </div>
+      </header>
 
-        <p className="text-center text-xs font-medium uppercase tracking-[0.2em] text-zinc-500">
-          FinFlow • visão rápida
-        </p>
+      {erro ? <p className="text-sm text-negativo">{erro}</p> : null}
 
-        <section aria-label="Resultado mensal no período selecionado" className="grid grid-cols-2 gap-3">
-          <GlassPanel className="col-span-2 p-5">
-            <div className="flex items-start justify-between gap-3">
-              <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">
-                Balanço do mês
-              </p>
-              <button
-                type="button"
-                onClick={() => setIsVisible((v) => !v)}
-                className="-mr-1 -mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.06] text-zinc-300 transition-colors hover:bg-white/[0.1] hover:text-white"
-                aria-pressed={!isVisible}
-                aria-label={
-                  isVisible
-                    ? "Ocultar balanço do mês"
-                    : "Mostrar balanço do mês"
-                }
-              >
-                {isVisible ? (
-                  <svg
-                    className="h-5 w-5"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                    aria-hidden
-                  >
-                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
-                    <line x1="1" y1="1" x2="23" y2="23" />
-                  </svg>
-                ) : (
-                  <svg
-                    className="h-5 w-5"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                    aria-hidden
-                  >
-                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                    <circle cx="12" cy="12" r="3" />
-                  </svg>
-                )}
-              </button>
-            </div>
-            <p className="mt-2 min-h-[2.25rem] text-3xl font-bold tracking-tight text-white sm:min-h-[2.5rem] sm:text-4xl tabular-nums">
-              {isLoading && isVisible ? (
-                <AmountSkeleton className="h-9 w-[11rem] sm:h-10" />
-              ) : isVisible ? (
-                saldoFmt
-              ) : (
-                VALOR_OCULTO
-              )}
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] lg:items-start">
+        <div className="flex flex-col gap-5">
+          {/* Saldo e resultado do mês */}
+          <section>
+            <p className="text-xs text-texto-3">
+              {resumo?.saldoContas ? "Saldo em contas" : "Resultado do mês"}
             </p>
-          </GlassPanel>
-
-          <GlassPanel className="flex flex-col p-4">
-            <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-zinc-500">
-              <ArrowDownLeft
-                className="h-4 w-4 text-[#10B981]"
-                strokeWidth={2.25}
-                aria-hidden
-              />
-              Recebimentos
-              <span
-                className="ml-auto max-w-[7rem] truncate font-normal normal-case tracking-normal text-zinc-600"
-                title={periodoLabelCurto}
-              >
-                {periodoLabelCurto}
-              </span>
-            </div>
-            <p className="mt-1 min-h-7 text-xl font-bold text-[#10B981] tabular-nums">
-              {isLoading && isVisible ? (
-                <AmountSkeleton className="h-7 w-[7.5rem]" />
-              ) : isVisible ? (
-                incFmt
-              ) : (
-                VALOR_OCULTO
-              )}
-            </p>
-            <RecebimentosMomHint
-              deltaPct={receitasMomPct}
-              isVisible={showMomHints && isVisible}
-            />
-          </GlassPanel>
-
-          <GlassPanel className="flex flex-col p-4">
-            <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-zinc-500">
-              <ArrowUpRight
-                className="h-4 w-4 text-[#EF4444]"
-                strokeWidth={2.25}
-                aria-hidden
-              />
-              Gastos
-              <span
-                className="ml-auto max-w-[7rem] truncate font-normal normal-case tracking-normal text-zinc-600"
-                title={periodoLabelCurto}
-              >
-                {periodoLabelCurto}
-              </span>
-            </div>
-            <p className="mt-1 min-h-7 text-xl font-bold text-[#EF4444] tabular-nums">
-              {isLoading && isVisible ? (
-                <AmountSkeleton className="h-7 w-[7.5rem]" />
-              ) : isVisible ? (
-                gastosFmt
-              ) : (
-                VALOR_OCULTO
-              )}
-            </p>
-            <GastosMomHint
-              deltaPct={gastosMomPct}
-              isVisible={showMomHints && isVisible}
-            />
-          </GlassPanel>
-        </section>
-
-        <section
-          aria-label="Gastos e movimentações recentes"
-          className="flex flex-col gap-3"
-        >
-          <GlassPanel className="flex flex-col gap-5 p-5">
-            {/* 3 e 4. Cabeçalho Flex + Segmento de Filtros */}
-            <div className="flex flex-row items-center justify-between w-full gap-3 mb-4">
-              <div className="min-w-0">
-                <h2 className="text-base font-semibold leading-tight text-white">
-                  {donutFilter === "receitas" ? (
-                    <>
-                      Receitas por
-                      <br />
-                      Categorias
-                    </>
-                  ) : (
-                    <>
-                      Gastos por
-                      <br />
-                      Categorias
-                    </>
-                  )}
-                </h2>
-              </div>
-              <div
-                role="tablist"
-                className="inline-flex shrink-0 items-center gap-1 rounded-full border border-white/10 bg-white/[0.04] p-1"
-              >
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={donutFilter === "despesas"}
-                  onClick={() => setDonutFilter("despesas")}
-                  className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
-                    donutFilter === "despesas"
-                      ? "bg-white/10 text-white"
-                      : "text-zinc-500 hover:text-zinc-300"
-                  }`}
-                >
-                  Despesas
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={donutFilter === "receitas"}
-                  onClick={() => setDonutFilter("receitas")}
-                  className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
-                    donutFilter === "receitas"
-                      ? "bg-white/10 text-white"
-                      : "text-zinc-500 hover:text-zinc-300"
-                  }`}
-                >
-                  Receitas
-                </button>
-              </div>
-            </div>
-
-            {isLoading ? (
-              <div className="flex h-[220px] flex-col items-center justify-center gap-4">
-                <div className="h-36 w-36 animate-pulse rounded-full bg-white/[0.06]" />
-                <p className="text-xs text-zinc-500">Carregando…</p>
-              </div>
-            ) : donutTotal <= 0 || donutSlices.length === 0 ? (
-              <div className="flex min-h-[220px] flex-col items-center justify-center gap-6 rounded-2xl border border-white/[0.06] bg-zinc-900/25 px-4 py-8 text-center">
-                <div className="relative mx-auto flex h-[200px] w-full max-w-[240px] items-center justify-center">
-                  <div
-                    className="absolute h-[150px] w-[150px] rounded-full border-[14px] border-zinc-600/35 bg-zinc-800/15"
-                    aria-hidden
-                  />
-                  <div className="relative z-[1] flex flex-col items-center gap-0.5 text-center">
-                    <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">
-                      Total
-                    </span>
-                    <span className="text-lg font-bold tracking-tight text-zinc-500 tabular-nums">
-                      {fmtBRL.format(0)}
-                    </span>
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-sm text-zinc-400">
-                    {donutFilter === "receitas"
-                      ? `Nenhuma receita em ${periodoLabelCurto}.`
-                      : `Nenhuma despesa em ${periodoLabelCurto}.`}
-                  </p>
-                  <p className="text-xs text-zinc-600">
-                    {donutFilter === "receitas"
-                      ? "As receitas aparecem aqui conforme você lança no período."
-                      : "Os gastos aparecem aqui conforme você lança no período."}
-                  </p>
-                </div>
-              </div>
+            {carregando ? (
+              <div className="mt-1 h-8 w-40 animate-pulse rounded-lg bg-superficie-2" />
             ) : (
-              <>
-                <SpendingDonutClient
-                  data={donutSlices}
-                  totalLabel={donutTotalLabel}
-                />
-
-                <ul className="space-y-3 pb-1">
-                  {legendRows.map((row, idx) => (
-                    <li
-                      key={`${row.name}-${idx}`}
-                      className="flex items-center justify-between gap-3 text-sm"
-                    >
-                      <div className="flex min-w-0 items-center gap-2">
-                        <span
-                          className="h-2.5 w-2.5 shrink-0 rounded-full"
-                          style={{ backgroundColor: row.fill }}
-                          aria-hidden
-                        />
-                        <span className="truncate text-zinc-200">{row.name}</span>
-                      </div>
-                      <div className="flex shrink-0 items-baseline gap-3">
-                        <span className="text-zinc-500">{row.pct}%</span>
-                        <span className="font-semibold text-white tabular-nums">
-                          {fmtBRL.format(row.value)}
-                        </span>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </>
+              <p className="mt-0.5 text-[28px] font-semibold leading-tight text-texto">
+                <Valor valor={resumo?.saldoContas?.valor ?? resultado} oculto={oculto} />
+              </p>
             )}
-          </GlassPanel>
-
-          <GlassPanel className="flex flex-col gap-4 p-5">
-            <div className="flex items-baseline justify-between gap-3">
-              <h2 className="text-base font-semibold text-white">
-                Movimentações — {periodoLabelCurto}
-              </h2>
-              <Link
-                href="/extrato"
-                className="shrink-0 text-xs font-medium text-zinc-500 transition hover:text-[#10B981]"
-              >
-                Ver todas
-              </Link>
-            </div>
-
-            {isLoading ? (
-              <ul className="flex flex-col gap-3">
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <li
-                    key={`sk-${String(i)}`}
-                    className="flex items-center gap-3 py-1"
-                  >
-                    <div className="h-11 w-11 shrink-0 animate-pulse rounded-2xl bg-white/10" />
-                    <div className="flex min-w-0 flex-1 flex-col gap-2">
-                      <div className="h-3 max-w-[12rem] w-[75%] animate-pulse rounded bg-white/10" />
-                      <div className="h-3 w-20 animate-pulse rounded bg-white/[0.06]" />
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            ) : recentMovementRows.length === 0 ? (
-              <p className="py-6 text-center text-sm text-zinc-500">
-                Nenhuma movimentação em {periodoLabelCurto}.
+            {resumo?.saldoContas && mesAtual ? (
+              <p className="mt-0.5 text-xs text-texto-3">
+                Resultado do mês:{" "}
+                <Valor valor={resultado} sinal colorir oculto={oculto} />
               </p>
-            ) : (
-              <ul className="flex flex-col gap-3">
-                {recentMovementRows.map((tx) => {
-                  const tipo = String(tx.tipo ?? "").toLowerCase();
-                  const isReceita = tipo === "receita";
-                  const v = parseValor(tx.valor);
-                  const amount = fmtBRL.format(v);
-                  const signed = isReceita ? `+${amount}` : `-${amount}`;
-                  const pill = isReceita
-                    ? "bg-[#10B981]/14 text-[#10B981]"
-                    : "bg-[#EF4444]/12 text-[#EF4444]";
+            ) : null}
+
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <Card className="px-3 py-2.5">
+                <p className="flex items-center gap-1 text-xs text-texto-3">
+                  <ArrowDownLeft className="h-3.5 w-3.5 text-positivo" aria-hidden /> Entradas
+                </p>
+                <p className="mt-0.5 text-[15px] font-semibold text-positivo">
+                  {carregando ? "…" : <Valor valor={resumo?.entradas ?? 0} oculto={oculto} />}
+                </p>
+              </Card>
+              <Card className="px-3 py-2.5">
+                <p className="flex items-center gap-1 text-xs text-texto-3">
+                  <ArrowUpRight className="h-3.5 w-3.5 text-negativo" aria-hidden /> Saídas
+                </p>
+                <p className="mt-0.5 text-[15px] font-semibold text-negativo">
+                  {carregando ? "…" : <Valor valor={resumo?.saidas ?? 0} oculto={oculto} />}
+                </p>
+                {variacaoSaidas != null && !oculto && !carregando ? (
+                  <p className="mt-0.5 text-[11px] text-texto-3">
+                    {variacaoSaidas === 0
+                      ? "igual ao mês anterior"
+                      : `${variacaoSaidas > 0 ? "▲" : "▼"} ${Math.abs(variacaoSaidas)}% vs mês anterior`}
+                  </p>
+                ) : null}
+              </Card>
+            </div>
+          </section>
+
+          {/* Avisos */}
+          {resumo && resumo.pendentesRevisao > 0 ? (
+            <Link
+              href="/importar"
+              className="flex items-center gap-3 rounded-xl bg-alerta/10 px-3 py-2.5 text-sm text-alerta"
+            >
+              <Inbox className="h-[18px] w-[18px] shrink-0" aria-hidden />
+              <span className="flex-1">
+                {resumo.pendentesRevisao}{" "}
+                {resumo.pendentesRevisao === 1 ? "transação para revisar" : "transações para revisar"}
+              </span>
+              <ChevronRight className="h-4 w-4" aria-hidden />
+            </Link>
+          ) : null}
+          {resumo?.cartaoVencendo ? (
+            <Link
+              href="/cartoes"
+              className="flex items-center gap-3 rounded-xl bg-superficie px-3 py-2.5 text-sm text-texto-2"
+            >
+              <AlertTriangle className="h-[18px] w-[18px] shrink-0 text-alerta" aria-hidden />
+              <span className="flex-1">
+                Fatura do {resumo.cartaoVencendo.nome}{" "}
+                {resumo.cartaoVencendo.dias === 0
+                  ? "vence hoje"
+                  : `vence em ${resumo.cartaoVencendo.dias} ${resumo.cartaoVencendo.dias === 1 ? "dia" : "dias"}`}
+              </span>
+              <ChevronRight className="h-4 w-4" aria-hidden />
+            </Link>
+          ) : null}
+
+          {/* Categorias */}
+          <Secao titulo="Por categoria" acao={{ label: "Ver análise", href: "/relatorios" }}>
+            <Card className="p-3">
+              <div className="mb-3 flex gap-1.5">
+                <Chip ativo={tipoGrafico === "despesa"} onClick={() => setTipoGrafico("despesa")}>
+                  Despesas
+                </Chip>
+                <Chip ativo={tipoGrafico === "receita"} onClick={() => setTipoGrafico("receita")}>
+                  Receitas
+                </Chip>
+              </div>
+              {carregando ? (
+                <div className="h-2 animate-pulse rounded-full bg-superficie-2" />
+              ) : fatias.length === 0 ? (
+                <p className="py-2 text-center text-xs text-texto-3">
+                  Nenhuma {tipoGrafico} neste mês.
+                </p>
+              ) : (
+                <>
+                  <div className="flex h-2 gap-0.5 overflow-hidden rounded-full">
+                    {fatias.map((f) => (
+                      <div key={f.nome} style={{ flex: f.valor, background: f.cor }} />
+                    ))}
+                  </div>
+                  <ul className="mt-3 flex flex-col gap-2">
+                    {fatias.map((f) => (
+                      <li key={f.nome} className="flex items-center gap-2 text-sm">
+                        <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: f.cor }} />
+                        <span className="min-w-0 flex-1 truncate text-texto-2">{f.nome}</span>
+                        <span className="w-9 text-right text-xs text-texto-3">{f.pct}%</span>
+                        <Valor valor={f.valor} oculto={oculto} className="w-24 text-right text-texto" />
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </Card>
+          </Secao>
+        </div>
+
+        {/* Últimas movimentações */}
+        <Secao titulo="Últimas movimentações" acao={{ label: "Extrato", href: "/extrato" }}>
+          <Card className="px-3">
+            {carregando ? (
+              <div className="flex flex-col gap-3 py-3">
+                {[0, 1, 2, 3].map((i) => (
+                  <div key={i} className="h-9 animate-pulse rounded-lg bg-superficie-2" />
+                ))}
+              </div>
+            ) : resumo && resumo.movimentos.length > 0 ? (
+              <ul className="divide-y divide-borda">
+                {resumo.movimentos.slice(0, 8).map((m) => {
+                  const valorExibido =
+                    m.tipo === "despesa" ? -m.valor : m.tipo === "receita" ? m.valor : m.valor;
                   return (
-                    <li key={tx.id}>
-                      <div className="flex items-center gap-3">
-                        <div
-                          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-white/5 ${pill}`}
-                        >
-                          {isReceita ? (
-                            <ArrowDownLeft
-                              className="h-5 w-5"
-                              strokeWidth={1.75}
-                              aria-hidden
-                            />
+                    <li key={m.id}>
+                      <LinhaLista
+                        icone={<IconeCategoria categoria={m.categoria} transferencia={m.tipo === "transferencia"} />}
+                        titulo={m.descricao || "Sem descrição"}
+                        subtitulo={[
+                          m.tipo === "transferencia" ? "Transferência" : m.categoria || "Sem categoria",
+                          m.meio,
+                          dataCurta(m.data),
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                        direita={
+                          m.tipo === "transferencia" ? (
+                            <Valor valor={Math.abs(m.valor)} oculto={oculto} className="text-texto-3" />
                           ) : (
-                            <ArrowUpRight
-                              className="h-5 w-5"
-                              strokeWidth={1.75}
-                              aria-hidden
+                            <Valor
+                              valor={valorExibido}
+                              sinal={m.tipo === "receita"}
+                              colorir={m.tipo === "receita"}
+                              oculto={oculto}
                             />
-                          )}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-semibold text-white">
-                            {(tx.descricao && tx.descricao.trim()) ||
-                              (isReceita ? "Receita" : "Despesa")}
-                          </p>
-                          <p className="truncate text-xs text-zinc-500">
-                            {formatDataCurta(tx.data)}
-                          </p>
-                        </div>
-                        <p
-                          className={`shrink-0 text-sm font-semibold tabular-nums ${
-                            isReceita ? "text-[#10B981]" : "text-[#EF4444]"
-                          }`}
-                        >
-                          {signed}
-                        </p>
-                      </div>
+                          )
+                        }
+                      />
                     </li>
                   );
                 })}
               </ul>
+            ) : (
+              <div className="py-6 text-center">
+                <p className="text-sm text-texto-2">Nenhuma movimentação neste mês</p>
+                <Link href="/lancar" className="mt-1 inline-block text-xs font-semibold text-marca">
+                  Fazer um lançamento
+                </Link>
+              </div>
             )}
-          </GlassPanel>
-        </section>
-      </main>
-    </>
+          </Card>
+        </Secao>
+      </div>
+    </div>
   );
 }

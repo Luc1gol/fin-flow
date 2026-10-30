@@ -1,10 +1,35 @@
 @import "tailwindcss";
 
+/*
+ * Padrão visual do FinFlow. As cores viram classes do Tailwind:
+ * bg-fundo, bg-superficie, border-borda, text-texto-2, text-positivo...
+ */
 @theme inline {
   --color-fin-bg: #121212;
   --color-fin-accent: #10b981;
   --color-fin-foreground: #fafafa;
   --color-fin-muted: #a1a1aa;
+
+  --color-fundo: #0e0e10;
+  --color-superficie: #17171a;
+  --color-superficie-2: #1f1f23;
+  --color-borda: rgb(255 255 255 / 0.07);
+  --color-borda-forte: rgb(255 255 255 / 0.12);
+  --color-texto: #f4f4f5;
+  --color-texto-2: #a1a1aa;
+  --color-texto-3: #71717a;
+  --color-marca: #10b981;
+  --color-marca-forte: #0ea371;
+  --color-positivo: #34d399;
+  --color-negativo: #f87171;
+  --color-alerta: #fbbf24;
+
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+}
+
+/* Valores monetários alinham pelos dígitos. */
+.valor {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
 }
