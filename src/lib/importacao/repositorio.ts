@@ -11,6 +11,7 @@ import {
   type TipoMovimento,
 } from "@/lib/importacao/classificar";
 import { enfileirarTransacoes } from "@/lib/importacao/fila";
+import { lancamentoCombina, listarRecorrenciasAtivas } from "@/lib/dados/recorrencias";
 import type { OfxExtrato } from "@/lib/importacao/ofx";
 
 export type Conta = {
@@ -350,7 +351,16 @@ export async function confirmarTransacoes(itens: TransacaoRevisada[]): Promise<v
     origem: "importacao",
   }));
 
-  const { error } = await supabase.from("lancamentos").insert(lancamentos);
+  // Pagamento de uma conta fixa (ex.: aluguel via Pix) já fica ligado a ela.
+  const recorrencias = await listarRecorrenciasAtivas().catch(() => []);
+  const comRecorrencia = lancamentos.map((l) => ({
+    ...l,
+    recorrencia_id:
+      recorrencias.find((r) => lancamentoCombina(r, { descricao: l.descricao, tipo: l.tipo, valor: l.valor }))
+        ?.id ?? null,
+  }));
+
+  const { error } = await supabase.from("lancamentos").insert(comRecorrencia);
   if (error) throw error;
 
   await emLotes(itens, 10, async (it, i) => {

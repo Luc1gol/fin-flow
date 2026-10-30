@@ -17,6 +17,7 @@ import { useDashboardPeriod } from "@/components/layout/dashboard-period-context
 import { Card, Chip, LinhaLista, Secao, Valor } from "@/components/ui/base";
 import { carregarResumoInicio, type MovimentoResumo, type ResumoInicio } from "@/lib/dados/inicio";
 import { carregarPainelOrcamento, statusDoItem, type PainelOrcamento } from "@/lib/dados/orcamentos";
+import { carregarContasFixas, type PainelContasFixas } from "@/lib/dados/recorrencias";
 import { formatBRL } from "@/lib/format-currency";
 import { CORES_CATEGORIA } from "@/lib/icone-categoria";
 import { IconeCategoria } from "@/components/ui/IconeCategoria";
@@ -51,6 +52,51 @@ function fatiasPorCategoria(movs: MovimentoResumo[], tipo: "despesa" | "receita"
     pct: Math.round((valor / total) * 100),
     cor: CORES_CATEGORIA[Math.min(i, CORES_CATEGORIA.length - 1)]!,
   }));
+}
+
+/** Linha "Contas fixas": quantas faltam pagar no mês e quanto. */
+function ResumoContasFixas({
+  painel,
+  oculto,
+  carregando,
+}: {
+  painel: PainelContasFixas | null;
+  oculto: boolean;
+  carregando: boolean;
+}) {
+  if (carregando || !painel) return null;
+  const pendentes = painel.contas.filter(
+    (c) => c.recorrencia.tipo === "despesa" && c.situacao !== "paga",
+  );
+  const atrasadas = pendentes.filter((c) => c.situacao === "atrasada").length;
+  const total = pendentes.reduce((a, c) => a + c.recorrencia.valor, 0);
+  let texto: string;
+  if (painel.contas.length === 0) {
+    texto =
+      painel.sugestoes.length > 0
+        ? `Encontramos ${painel.sugestoes.length} possíveis contas fixas`
+        : "Cadastre suas contas fixas";
+  } else if (pendentes.length === 0) {
+    texto = "Contas fixas do mês em dia";
+  } else {
+    texto = `${pendentes.length} ${pendentes.length === 1 ? "conta fixa" : "contas fixas"} a pagar · ${
+      oculto ? "R$ ••••" : formatBRL(total)
+    }`;
+  }
+  return (
+    <Link
+      href="/recorrencias"
+      className={`vidro-suave flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm ${
+        atrasadas > 0 ? "!border-negativo/25 text-negativo" : "text-texto-2"
+      }`}
+    >
+      <span className="flex-1">
+        {texto}
+        {atrasadas > 0 ? ` · ${atrasadas} atrasada${atrasadas > 1 ? "s" : ""}` : ""}
+      </span>
+      <ChevronRight className="h-4 w-4" aria-hidden />
+    </Link>
+  );
 }
 
 /** Cartão "Orçamento do mês": total planejado e as categorias mais apertadas. */
@@ -141,6 +187,7 @@ export function DashboardHome() {
     chave: string;
     resumo: ResumoInicio;
     orcamento: PainelOrcamento | null;
+    contasFixas: PainelContasFixas | null;
   } | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [oculto, setOculto] = useState(() => {
@@ -161,10 +208,14 @@ export function DashboardHome() {
         console.error(e);
         return null;
       }),
+      carregarContasFixas(period.year, period.monthIndex).catch((e) => {
+        console.error(e);
+        return null;
+      }),
     ])
-      .then(([resumo, orcamento]) => {
+      .then(([resumo, orcamento, contasFixas]) => {
         if (!cancelado) {
-          setDados({ chave, resumo, orcamento });
+          setDados({ chave, resumo, orcamento, contasFixas });
           setErro(null);
         }
       })
@@ -342,6 +393,7 @@ export function DashboardHome() {
           ) : null}
 
           <ResumoOrcamento painel={dados?.orcamento ?? null} oculto={oculto} carregando={carregando} />
+          <ResumoContasFixas painel={dados?.contasFixas ?? null} oculto={oculto} carregando={carregando} />
 
           {/* Categorias */}
           <Secao titulo="Por categoria" acao={{ label: "Ver análise", href: "/relatorios" }}>
