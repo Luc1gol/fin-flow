@@ -3,90 +3,36 @@
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
-  useRef,
   useState,
+  useSyncExternalStore,
   type FormEvent,
+  type ReactNode,
 } from "react";
-import { Edit2, Landmark, Plus, Trash2 } from "lucide-react";
-import { supabase } from "@/lib/supabase";
+import { createPortal } from "react-dom";
 import {
-  type BancoInstituicao,
-  bancosOrdenados,
-  getBancoById,
-  iniciaisInstituicao,
-  logoGoogleFaviconUrl,
-  logoIconHorseUrl,
-} from "@/data/bancos";
-
-type LogoTier = "horse" | "google";
-
-function BancoLogo({
-  banco,
-  sizeClass = "h-10 w-10",
-}: {
-  banco: BancoInstituicao;
-  sizeClass?: string;
-}) {
-  const [tier, setTier] = useState<LogoTier | "fallback">("horse");
-  const mountedRef = useRef(false);
-
-  useLayoutEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
-
-  const safeSetTier = useCallback(
-    (updater: (prev: LogoTier | "fallback") => LogoTier | "fallback") => {
-      queueMicrotask(() => {
-        if (!mountedRef.current) return;
-        setTier(updater);
-      });
-    },
-    [],
-  );
-
-  const handleImgError = useCallback(() => {
-    safeSetTier((t) => (t === "horse" ? "google" : "fallback"));
-  }, [safeSetTier]);
-
-  const ini = useMemo(() => iniciaisInstituicao(banco.nome), [banco.nome]);
-  const src =
-    tier === "horse"
-      ? logoIconHorseUrl(banco.domain)
-      : tier === "google"
-        ? logoGoogleFaviconUrl(banco.domain)
-        : null;
-
-  if (tier === "fallback") {
-    const ok = ini.length >= 1 && ini !== "?";
-    return (
-      <span
-        className={`flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-zinc-700 text-[11px] font-bold text-zinc-100 ${sizeClass}`}
-      >
-        {ok ? (
-          ini
-        ) : (
-          <Landmark className="h-3.5 w-3.5 text-zinc-300" strokeWidth={2} aria-hidden />
-        )}
-      </span>
-    );
-  }
-
-  return (
-    <div className={`shrink-0 overflow-hidden rounded-full ${sizeClass}`}>
-      <img
-        src={src!}
-        alt=""
-        className="h-full w-full object-cover"
-        onError={handleImgError}
-      />
-    </div>
-  );
-}
+  CalendarCheck,
+  CalendarClock,
+  ChevronDown,
+  CreditCard,
+  Pencil,
+  Plus,
+  ShoppingBag,
+  Trash2,
+  X,
+} from "lucide-react";
+import { supabase } from "@/lib/supabase";
+import { getBancoById } from "@/data/bancos";
+import { labelContaCartaoPersistido } from "@/lib/conta-cartao-lancamento";
+import {
+  formatMaskedValorDisplay,
+  MAX_AMOUNT_DIGITS_LANCAMENTO,
+  parseAmountDigitsToReais,
+  reaisToAmountDigits,
+} from "@/lib/currency-input-mask";
+import { Botao, Card, Valor, campoClasse } from "@/components/ui/base";
+import { BancoLogo, corBrilhoBanco } from "@/components/cartoes/BancoLogo";
+import { InstituicaoPickerSheet } from "@/components/cartoes/InstituicaoPickerSheet";
 
 type CartaoUsuario = {
   id: string;
@@ -95,11 +41,20 @@ type CartaoUsuario = {
   nome: string;
   diaFechamento: number;
   diaVencimento: number;
+  limite: number;
 };
+
+/** Lançamento de despesa feito em um cartão (só leitura, para a fatura aberta). */
+type GastoCartao = { conta: string; data: string; valor: number };
 
 function parseIntSafe(v: unknown): number {
   const n =
     typeof v === "number" ? Math.trunc(v) : Number.parseInt(String(v ?? "0"), 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function parseNumero(v: unknown): number {
+  const n = typeof v === "number" ? v : Number.parseFloat(String(v ?? "0"));
   return Number.isFinite(n) ? n : 0;
 }
 
@@ -111,111 +66,303 @@ function mapCartaoRow(row: Record<string, unknown>): CartaoUsuario {
     nome: String(row.nome ?? "").trim(),
     diaFechamento: parseIntSafe(row.dia_fechamento),
     diaVencimento: parseIntSafe(row.dia_vencimento),
+    limite: parseNumero(row.limite),
   };
 }
 
 const BANCO_PADRAO_ID = "nubank";
 
-function CartaoVisual({
+/* ------------------------------------------------------------------ */
+/* Ciclo da fatura                                                     */
+/* ------------------------------------------------------------------ */
+
+const DIA_MS = 86_400_000;
+
+function diaNoMes(ano: number, mes0: number, dia: number): Date {
+  const ultimo = new Date(ano, mes0 + 1, 0).getDate();
+  return new Date(ano, mes0, Math.min(Math.max(1, dia), ultimo));
+}
+
+function isoData(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+type Ciclo = {
+  /** Primeiro dia da fatura aberta (inclusive). */
+  inicio: Date;
+  /** Dia de fechamento da fatura aberta (compras a partir dele vão para a próxima). */
+  fechamento: Date;
+  vencimento: Date;
+};
+
+/** Fatura aberta hoje: do último fechamento até o próximo. */
+function cicloAtual(diaFechamento: number, diaVencimento: number, hoje: Date): Ciclo {
+  const y = hoje.getFullYear();
+  const m = hoje.getMonth();
+  const fechaEsteMes = diaNoMes(y, m, diaFechamento);
+  const [inicio, fechamento] =
+    hoje >= fechaEsteMes
+      ? [fechaEsteMes, diaNoMes(y, m + 1, diaFechamento)]
+      : [diaNoMes(y, m - 1, diaFechamento), fechaEsteMes];
+  let vencimento = diaNoMes(fechamento.getFullYear(), fechamento.getMonth(), diaVencimento);
+  if (vencimento <= fechamento) {
+    vencimento = diaNoMes(fechamento.getFullYear(), fechamento.getMonth() + 1, diaVencimento);
+  }
+  return { inicio, fechamento, vencimento };
+}
+
+function hojeSemHora(): Date {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+function diasAte(alvo: Date, hoje: Date): number {
+  return Math.round((alvo.getTime() - hoje.getTime()) / DIA_MS);
+}
+
+function textoDias(dias: number): string {
+  if (dias <= 0) return "hoje";
+  if (dias === 1) return "amanhã";
+  return `em ${dias} dias`;
+}
+
+const fmtDiaMes = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short" });
+
+function dataCurta(d: Date): string {
+  return fmtDiaMes.format(d).replace(".", "");
+}
+
+function faturaDoCartao(cartao: CartaoUsuario, gastos: GastoCartao[], hoje: Date): number {
+  const { inicio, fechamento } = cicloAtual(cartao.diaFechamento, cartao.diaVencimento, hoje);
+  const de = isoData(inicio);
+  const ate = isoData(fechamento);
+  const rotulo = labelContaCartaoPersistido(cartao.nome).toLowerCase();
+  let total = 0;
+  for (const g of gastos) {
+    if (g.conta === rotulo && g.data >= de && g.data < ate) total += g.valor;
+  }
+  return total;
+}
+
+/* ------------------------------------------------------------------ */
+/* Cartão visual (carrossel)                                           */
+/* ------------------------------------------------------------------ */
+
+function CartaoMini({
   cartao,
+  fatura,
+  ativo,
+  onSelect,
+}: {
+  cartao: CartaoUsuario;
+  fatura: number;
+  ativo: boolean;
+  onSelect: (el: HTMLElement) => void;
+}) {
+  const banco = getBancoById(cartao.banco || "outros");
+  return (
+    <button
+      type="button"
+      onClick={(e) => onSelect(e.currentTarget)}
+      aria-pressed={ativo}
+      aria-label={`${cartao.nome || banco.nome}, ${banco.nome}`}
+      className={`vidro-suave relative flex aspect-[1.586] w-[68%] shrink-0 snap-center touch-manipulation flex-col justify-between overflow-hidden rounded-2xl p-3.5 text-left transition sm:w-[15rem] ${
+        ativo ? "ring-2 ring-marca/70" : "opacity-75 hover:opacity-100"
+      }`}
+    >
+      <span
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background: `radial-gradient(120% 90% at 0% 0%, ${corBrilhoBanco(banco, 0.45)} 0%, transparent 60%), radial-gradient(80% 70% at 100% 100%, ${corBrilhoBanco(banco, 0.18)} 0%, transparent 70%)`,
+        }}
+        aria-hidden
+      />
+      <span className="relative flex items-center gap-2">
+        <BancoLogo banco={banco} className="h-7 w-7" />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[13px] font-semibold text-texto">
+            {cartao.nome || banco.nome}
+          </span>
+          <span className="block truncate text-[11px] text-texto-2">{banco.nome}</span>
+        </span>
+      </span>
+      <span className="relative">
+        <span className="block text-[10px] uppercase tracking-wider text-texto-3">Fatura aberta</span>
+        <span className="block text-base font-semibold text-texto">
+          <Valor valor={fatura} />
+        </span>
+      </span>
+    </button>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Detalhe do cartão selecionado                                       */
+/* ------------------------------------------------------------------ */
+
+function LinhaInfo({
+  icone,
+  rotulo,
+  valor,
+}: {
+  icone: ReactNode;
+  rotulo: string;
+  valor: ReactNode;
+}) {
+  return (
+    <div className="flex items-center gap-2.5 py-2">
+      <span className="text-texto-3">{icone}</span>
+      <span className="flex-1 text-sm text-texto-2">{rotulo}</span>
+      <span className="text-right text-sm text-texto">{valor}</span>
+    </div>
+  );
+}
+
+function DetalheCartao({
+  cartao,
+  fatura,
   onEdit,
   onDelete,
 }: {
   cartao: CartaoUsuario;
+  fatura: number;
   onEdit: (c: CartaoUsuario) => void;
   onDelete: (id: string) => void;
 }) {
-  const bancoInfo = useMemo(
-    () => getBancoById(cartao.banco || "outros"),
-    [cartao.banco],
-  );
+  const hoje = hojeSemHora();
+  const ciclo = cicloAtual(cartao.diaFechamento, cartao.diaVencimento, hoje);
+  const diasFecha = diasAte(ciclo.fechamento, hoje);
+  const diasVence = diasAte(ciclo.vencimento, hoje);
+
+  const temLimite = cartao.limite > 0;
+  const uso = temLimite ? fatura / cartao.limite : 0;
+  const corBarra = uso > 1 ? "bg-negativo" : uso > 0.8 ? "bg-alerta" : "bg-marca";
+  const disponivel = cartao.limite - fatura;
 
   return (
-    <article
-      className={`relative overflow-hidden rounded-3xl border-x border-b border-white/10 ${bancoInfo.colorClass} p-5 shadow-[0_22px_50px_-12px_rgba(0,0,0,0.72)] shadow-black/50 backdrop-blur-sm`}
-    >
-      <div
-        className="pointer-events-none absolute inset-0 rounded-3xl bg-[#121212]"
-        aria-hidden
-      />
-      <div
-        className="pointer-events-none absolute inset-0 rounded-3xl"
-        style={{
-          background: `radial-gradient(ellipse 115% 50% at 50% -12%, ${bancoInfo.radialGlow} 0%, transparent 55%), linear-gradient(180deg, rgba(255,255,255,0.02) 0%, transparent 38%)`,
-        }}
-        aria-hidden
-      />
-
-      <div className="relative z-[1]">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex min-w-0 flex-1 items-start gap-3">
-            <BancoLogo key={bancoInfo.domain} banco={bancoInfo} sizeClass="h-12 w-12" />
-            <div className="min-w-0 flex-1">
-              <h2 className="truncate text-xl font-semibold leading-snug tracking-tight text-white sm:text-[1.35rem]">
-                {bancoInfo.nome}
-              </h2>
-              {cartao.nome ? (
-                <p className="mt-1 truncate text-sm font-medium text-zinc-400">
-                  {cartao.nome}
-                </p>
-              ) : null}
-            </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-3">
-            <button
-              type="button"
-              onClick={() => onEdit(cartao)}
-              className="rounded-xl border border-white/10 bg-black/35 p-2 text-zinc-500 transition hover:border-[#10B981]/40 hover:text-[#10B981]"
-              aria-label="Editar cartão"
-            >
-              <Edit2 className="h-4 w-4" strokeWidth={2} aria-hidden />
-            </button>
-            <button
-              type="button"
-              onClick={() => onDelete(cartao.id)}
-              className="rounded-xl border border-white/10 bg-black/35 p-2 text-zinc-500 transition hover:border-red-500/40 hover:text-red-400"
-              aria-label="Excluir cartão"
-            >
-              <Trash2 className="h-4 w-4" strokeWidth={2} aria-hidden />
-            </button>
-          </div>
-        </div>
-
-        <div className="mt-5 grid grid-cols-2 gap-3">
-          <div className="rounded-2xl border border-white/10 bg-black/35 px-3 py-3 backdrop-blur-sm">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
-              Fechamento
-            </p>
-            <p className="mt-1 text-sm font-bold tabular-nums text-white">
-              Dia {cartao.diaFechamento}
-            </p>
-          </div>
-          <div className="rounded-2xl border border-white/10 bg-black/35 px-3 py-3 backdrop-blur-sm">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
-              Vencimento
-            </p>
-            <p className="mt-1 text-sm font-bold tabular-nums text-[#10B981]">
-              Dia {cartao.diaVencimento}
-            </p>
-          </div>
-        </div>
+    <section className="flex flex-col gap-3">
+      <div>
+        <p className="text-xs text-texto-3">
+          Fatura aberta · fecha {dataCurta(ciclo.fechamento)}
+        </p>
+        <p className="mt-0.5 text-[28px] font-semibold leading-tight text-texto">
+          <Valor valor={fatura} />
+        </p>
+        <p className="mt-0.5 text-[11px] text-texto-3">
+          Soma das despesas lançadas neste cartão desde {dataCurta(ciclo.inicio)}.
+        </p>
       </div>
-    </article>
+
+      {temLimite ? (
+        <div>
+          <div
+            className="h-2 overflow-hidden rounded-full bg-white/[0.07]"
+            role="progressbar"
+            aria-label="Uso do limite"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(Math.min(uso, 1) * 100)}
+          >
+            <div
+              className={`h-full rounded-full transition-[width] ${corBarra}`}
+              style={{ width: `${Math.min(uso, 1) * 100}%` }}
+            />
+          </div>
+          <div className="mt-1.5 flex items-baseline justify-between text-xs">
+            <span className="text-texto-3">
+              {Math.round(uso * 100)}% de <Valor valor={cartao.limite} />
+            </span>
+            <span className={disponivel < 0 ? "text-negativo" : "text-texto-2"}>
+              {disponivel < 0 ? "Acima do limite " : "Disponível "}
+              <Valor valor={Math.abs(disponivel)} />
+            </span>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => onEdit(cartao)}
+          className="self-start touch-manipulation text-xs font-medium text-marca"
+        >
+          Informar limite para ver o uso
+        </button>
+      )}
+
+      <Card className="divide-y divide-borda px-3">
+        <LinhaInfo
+          icone={<CalendarClock className="h-4 w-4" aria-hidden />}
+          rotulo="Fechamento"
+          valor={
+            <>
+              Dia {cartao.diaFechamento}
+              <span className="ml-1.5 text-xs text-texto-3">{textoDias(diasFecha)}</span>
+            </>
+          }
+        />
+        <LinhaInfo
+          icone={<CalendarCheck className="h-4 w-4" aria-hidden />}
+          rotulo="Vencimento"
+          valor={
+            <>
+              Dia {cartao.diaVencimento}
+              <span className="ml-1.5 text-xs text-texto-3">
+                {dataCurta(ciclo.vencimento)} · {textoDias(diasVence)}
+              </span>
+            </>
+          }
+        />
+        <LinhaInfo
+          icone={<ShoppingBag className="h-4 w-4" aria-hidden />}
+          rotulo="Melhor dia de compra"
+          valor={<span className="font-medium text-positivo">Dia {cartao.diaFechamento}</span>}
+        />
+      </Card>
+
+      <div className="flex gap-2">
+        <Botao className="flex-1" onClick={() => onEdit(cartao)}>
+          <Pencil className="h-3.5 w-3.5" aria-hidden />
+          Editar
+        </Botao>
+        <Botao
+          variante="fantasma"
+          className="flex-1 !text-negativo hover:!bg-negativo/10"
+          onClick={() => onDelete(cartao.id)}
+        >
+          <Trash2 className="h-3.5 w-3.5" aria-hidden />
+          Excluir
+        </Botao>
+      </div>
+    </section>
   );
 }
 
+/* ------------------------------------------------------------------ */
+/* Tela                                                                */
+/* ------------------------------------------------------------------ */
+
+function noopSubscribe(): () => void {
+  return () => {};
+}
+
+const rotuloCampo = "mb-1 block text-xs font-medium text-texto-2";
+
 export function CartoesScreen() {
+  const isClient = useSyncExternalStore(noopSubscribe, () => true, () => false);
   const [cartoes, setCartoes] = useState<CartaoUsuario[]>([]);
+  const [gastos, setGastos] = useState<GastoCartao[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [selecionadoId, setSelecionadoId] = useState<string | null>(null);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [pickerAberto, setPickerAberto] = useState(false);
   const [cartaoEditando, setCartaoEditando] = useState<string | null>(null);
   const [selectedBanco, setSelectedBanco] = useState<string>(BANCO_PADRAO_ID);
   const [nome, setNome] = useState("");
   const [diaFechamento, setDiaFechamento] = useState("1");
   const [diaVencimento, setDiaVencimento] = useState("10");
-
-  const bancosLista = useMemo(() => bancosOrdenados(), []);
+  const [limiteDigitos, setLimiteDigitos] = useState("");
+  const [erroForm, setErroForm] = useState<string | null>(null);
+  const [salvando, setSalvando] = useState(false);
 
   const bancoModalVisual = useMemo(
     () => getBancoById(selectedBanco || "outros"),
@@ -259,7 +406,32 @@ export function CartoesScreen() {
         }
 
         const rows = (data ?? []) as Record<string, unknown>[];
-        setCartoes(rows.map(mapCartaoRow));
+        const lista = rows.map(mapCartaoRow);
+        setCartoes(lista);
+
+        // Fatura aberta: só leitura dos lançamentos feitos nos cartões (desde 2 meses atrás).
+        if (lista.length > 0) {
+          const hoje = hojeSemHora();
+          const desde = isoData(new Date(hoje.getFullYear(), hoje.getMonth() - 2, 1));
+          const lanc = await supabase
+            .from("lancamentos")
+            .select("valor, data, conta_cartao")
+            .eq("user_id", user.id)
+            .eq("tipo", "despesa")
+            .like("conta_cartao", "Cartão %")
+            .gte("data", desde);
+          if (lanc.error) {
+            console.error(lanc.error);
+          } else {
+            setGastos(
+              (lanc.data ?? []).map((r) => ({
+                conta: String(r.conta_cartao ?? "").trim().toLowerCase(),
+                data: String(r.data ?? "").slice(0, 10),
+                valor: Math.abs(parseNumero(r.valor)),
+              })),
+            );
+          }
+        }
       } finally {
         setIsLoading(false);
       }
@@ -276,26 +448,80 @@ export function CartoesScreen() {
     [cartoes],
   );
 
+  const faturas = useMemo(() => {
+    const hoje = hojeSemHora();
+    const mapa = new Map<string, number>();
+    for (const c of cartoes) mapa.set(c.id, faturaDoCartao(c, gastos, hoje));
+    return mapa;
+  }, [cartoes, gastos]);
+
+  const totalFaturas = useMemo(
+    () => [...faturas.values()].reduce((acc, v) => acc + v, 0),
+    [faturas],
+  );
+
+  // Selecionado derivado: se o escolhido sumir (excluído), cai no primeiro da lista.
+  const selecionado =
+    cartoesOrdenados.find((c) => c.id === selecionadoId) ?? cartoesOrdenados[0] ?? null;
+
+  function selecionar(id: string, el: HTMLElement) {
+    setSelecionadoId(id);
+    el.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+  }
+
   function resetForm() {
     setCartaoEditando(null);
     setSelectedBanco(BANCO_PADRAO_ID);
     setNome("");
     setDiaFechamento("1");
     setDiaVencimento("10");
+    setLimiteDigitos("");
+    setErroForm(null);
   }
+
+  const fecharModal = useCallback(() => {
+    setPickerAberto(false);
+    setIsModalOpen(false);
+    setCartaoEditando(null);
+    setSelectedBanco(BANCO_PADRAO_ID);
+    setNome("");
+    setDiaFechamento("1");
+    setDiaVencimento("10");
+    setLimiteDigitos("");
+    setErroForm(null);
+  }, []);
 
   const handleEditar = useCallback((cartao: CartaoUsuario) => {
     setSelectedBanco(cartao.banco || "outros");
     setNome(cartao.nome);
     setDiaFechamento(String(cartao.diaFechamento));
     setDiaVencimento(String(cartao.diaVencimento));
+    setLimiteDigitos(reaisToAmountDigits(cartao.limite));
+    setErroForm(null);
     setCartaoEditando(cartao.id);
     setIsModalOpen(true);
   }, []);
 
+  // Trava o scroll da página e fecha com Esc enquanto o formulário está aberto.
+  useEffect(() => {
+    if (!isModalOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    function onEsc(e: KeyboardEvent) {
+      if (e.key === "Escape" && !pickerAberto) fecharModal();
+    }
+    window.addEventListener("keydown", onEsc);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("keydown", onEsc);
+    };
+  }, [isModalOpen, pickerAberto, fecharModal]);
+
   const handleSalvarCartao = useCallback(
     async (e: FormEvent) => {
       e.preventDefault();
+      if (salvando) return;
+      setErroForm(null);
 
       let userId: string | null = null;
       try {
@@ -317,34 +543,35 @@ export function CartoesScreen() {
         }
       } catch (err) {
         console.error("Erro Supabase:", err);
-        window.alert(
-          "Não foi possível verificar sua sessão. Tente novamente ou entre de novo.",
-        );
+        setErroForm("Não foi possível verificar sua sessão. Tente novamente ou entre de novo.");
         return;
       }
 
       if (!userId) {
-        window.alert("Não foi possível identificar o usuário. Entre novamente.");
+        setErroForm("Não foi possível identificar o usuário. Entre novamente.");
         return;
       }
 
       if (!nome.trim()) {
-        window.alert("Preencha o nome do cartão.");
+        setErroForm("Preencha o nome do cartão.");
         return;
       }
       if (!cartaoEditando && !selectedBanco.trim()) {
-        window.alert("Selecione o banco do cartão.");
+        setErroForm("Selecione o banco do cartão.");
         return;
       }
       const df = Math.min(31, Math.max(1, Number(diaFechamento) || 1));
       const dv = Math.min(31, Math.max(1, Number(diaVencimento) || 1));
+      const limite = parseAmountDigitsToReais(limiteDigitos);
 
+      setSalvando(true);
       try {
         if (cartaoEditando) {
           const updatePayload = {
             nome: nome.trim(),
             dia_fechamento: df,
             dia_vencimento: dv,
+            limite,
           };
           const { data: updated, error } = await supabase
             .from("cartoes")
@@ -356,9 +583,7 @@ export function CartoesScreen() {
 
           if (error) {
             console.error("Erro Supabase:", error);
-            window.alert(
-              error.message ?? "Erro ao atualizar o cartão. Verifique o console.",
-            );
+            setErroForm(error.message ?? "Erro ao atualizar o cartão.");
             return;
           }
 
@@ -367,8 +592,7 @@ export function CartoesScreen() {
             setCartoes((prev) =>
               prev.map((c) => (c.id === cartaoEditando ? mapped : c)),
             );
-            resetForm();
-            setIsModalOpen(false);
+            fecharModal();
           }
           return;
         }
@@ -379,7 +603,7 @@ export function CartoesScreen() {
           nome: nome.trim(),
           dia_fechamento: df,
           dia_vencimento: dv,
-          limite: 0,
+          limite,
         };
 
         const { data: inserted, error } = await supabase
@@ -390,28 +614,33 @@ export function CartoesScreen() {
 
         if (error) {
           console.error("Erro Supabase:", error);
-          window.alert(
-            error.message ?? "Erro ao salvar o cartão. Verifique o console.",
-          );
+          setErroForm(error.message ?? "Erro ao salvar o cartão.");
           return;
         }
 
         if (inserted) {
-          setCartoes((prev) => [
-            ...prev,
-            mapCartaoRow(inserted as Record<string, unknown>),
-          ]);
-          resetForm();
-          setIsModalOpen(false);
+          const novo = mapCartaoRow(inserted as Record<string, unknown>);
+          setCartoes((prev) => [...prev, novo]);
+          setSelecionadoId(novo.id);
+          fecharModal();
         }
       } catch (err) {
         console.error("Erro Supabase:", err);
-        window.alert(
-          "Erro inesperado ao salvar. Abra o console do desenvolvedor para detalhes.",
-        );
+        setErroForm("Erro inesperado ao salvar. Tente novamente.");
+      } finally {
+        setSalvando(false);
       }
     },
-    [selectedBanco, nome, diaFechamento, diaVencimento, cartaoEditando],
+    [
+      salvando,
+      selectedBanco,
+      nome,
+      diaFechamento,
+      diaVencimento,
+      limiteDigitos,
+      cartaoEditando,
+      fecharModal,
+    ],
   );
 
   const handleDelete = useCallback(async (id: string) => {
@@ -427,237 +656,270 @@ export function CartoesScreen() {
     setCartoes((prev) => prev.filter((c) => c.id !== id));
   }, []);
 
+  function abrirNovo() {
+    resetForm();
+    setIsModalOpen(true);
+  }
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <header className="mb-6 flex shrink-0 items-start justify-between gap-4">
+    <div className="flex flex-col gap-5 pb-6">
+      <header className="flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-2xl font-bold tracking-tight text-white">
-            Meus Cartões
-          </h1>
-          <p className="mt-1 text-sm text-zinc-500">
-            Gerencie instituição e datas de ciclo dos seus cartões.
-          </p>
+          <h1 className="text-lg font-semibold text-texto">Cartões</h1>
+          {!isLoading && cartoes.length > 0 ? (
+            <p className="text-xs text-texto-3">
+              {cartoes.length} {cartoes.length === 1 ? "cartão" : "cartões"} · faturas abertas{" "}
+              <Valor valor={totalFaturas} className="text-texto-2" />
+            </p>
+          ) : null}
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            resetForm();
-            setIsModalOpen(true);
-          }}
-          className="flex shrink-0 items-center gap-2 rounded-full bg-[#10B981] px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-[#10B981]/35 transition hover:bg-[#0ea271] active:opacity-95"
-        >
-          <Plus className="h-5 w-5 stroke-[2.25]" aria-hidden />
-          Novo Cartão
-        </button>
+        <Botao variante="primario" onClick={abrirNovo}>
+          <Plus className="h-4 w-4" aria-hidden />
+          Adicionar
+        </Botao>
       </header>
 
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain pb-28">
-        {isLoading ? (
-          <div className="space-y-3 px-0.5">
-            <p className="text-center text-sm text-zinc-500">Carregando…</p>
+      {isLoading ? (
+        <div className="flex flex-col gap-4" aria-busy="true" aria-label="Carregando cartões">
+          <div className="flex gap-3 overflow-hidden">
             {[0, 1].map((i) => (
               <div
                 key={i}
-                className="h-56 animate-pulse rounded-3xl border border-white/10 bg-white/[0.06]"
+                className="aspect-[1.586] w-[68%] shrink-0 animate-pulse rounded-2xl bg-superficie-2 sm:w-[15rem]"
               />
             ))}
           </div>
-        ) : cartoesOrdenados.length === 0 ? (
-          <p className="rounded-3xl border border-dashed border-white/15 bg-white/[0.03] px-5 py-12 text-center text-sm text-zinc-500">
-            Nenhum cartão cadastrado. Use &quot;Novo Cartão&quot; para adicionar o
-            primeiro.
-          </p>
-        ) : (
-          cartoesOrdenados.map((c) => (
-            <CartaoVisual
-              key={c.id}
-              cartao={c}
+          <div className="h-8 w-40 animate-pulse rounded-lg bg-superficie-2" />
+          <div className="h-28 animate-pulse rounded-2xl bg-superficie-2" />
+        </div>
+      ) : cartoesOrdenados.length === 0 ? (
+        <Card className="flex flex-col items-center gap-3 px-5 py-10 text-center">
+          <span className="vidro flex h-11 w-11 items-center justify-center rounded-full text-marca">
+            <CreditCard className="h-5 w-5" aria-hidden />
+          </span>
+          <div>
+            <p className="text-sm font-semibold text-texto">Nenhum cartão cadastrado</p>
+            <p className="mt-1 text-xs text-texto-3">
+              Cadastre seus cartões para acompanhar fatura, fechamento e vencimento.
+            </p>
+          </div>
+          <Botao variante="primario" onClick={abrirNovo}>
+            <Plus className="h-4 w-4" aria-hidden />
+            Adicionar cartão
+          </Botao>
+        </Card>
+      ) : (
+        <>
+          <div
+            className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto scroll-px-4 px-4 py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:mx-0 lg:scroll-px-0 lg:px-0"
+          >
+            {cartoesOrdenados.map((c) => (
+              <CartaoMini
+                key={c.id}
+                cartao={c}
+                fatura={faturas.get(c.id) ?? 0}
+                ativo={selecionado?.id === c.id}
+                onSelect={(el) => selecionar(c.id, el)}
+              />
+            ))}
+            <button
+              type="button"
+              onClick={abrirNovo}
+              className="vidro flex aspect-[1.586] w-[40%] shrink-0 snap-center touch-manipulation flex-col items-center justify-center gap-1.5 rounded-2xl text-xs font-medium text-texto-2 transition hover:text-texto sm:w-[9rem]"
+            >
+              <Plus className="h-5 w-5 text-marca" aria-hidden />
+              Adicionar cartão
+            </button>
+          </div>
+
+          {selecionado ? (
+            <DetalheCartao
+              key={selecionado.id}
+              cartao={selecionado}
+              fatura={faturas.get(selecionado.id) ?? 0}
               onEdit={handleEditar}
               onDelete={handleDelete}
             />
-          ))
-        )}
-      </div>
+          ) : null}
+        </>
+      )}
 
-      {isModalOpen ? (
-        <div className="fixed inset-0 z-[80] flex flex-col justify-end sm:justify-center">
-          <button
-            type="button"
-            className="absolute inset-0 bg-black/70 backdrop-blur-[2px]"
-            aria-label="Fechar formulário"
-            onClick={() => {
-              resetForm();
-              setIsModalOpen(false);
-            }}
-          />
-          <div
-            className="relative z-[1] mx-auto mb-0 flex max-h-[85vh] w-full max-w-[430px] flex-col overflow-hidden rounded-t-[1.65rem] border border-white/12 bg-[#121212]/98 shadow-[0_-16px_64px_rgba(0,0,0,0.55)] backdrop-blur-xl sm:mb-auto sm:rounded-3xl sm:shadow-2xl"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="modal-cartoes-titulo"
-          >
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-              <div className="sticky top-0 z-[2] border-b border-white/10 bg-[#121212]/98 px-5 py-4 backdrop-blur-md">
-                <h2
-                  id="modal-cartoes-titulo"
-                  className="text-lg font-semibold text-white"
-                >
-                  {cartaoEditando ? "Editar Cartão" : "Novo Cartão"}
-                </h2>
-                <p className="mt-1 text-xs text-zinc-500">
-                  {cartaoEditando
-                    ? "A instituição não pode ser alterada. Edite nome e datas."
-                    : "Escolha o banco e preencha os dados do cartão."}
-                </p>
-              </div>
-              <form onSubmit={handleSalvarCartao} className="px-5 pb-20 pt-5">
-                <div className="space-y-4">
-                {!cartaoEditando ? (
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-                      Banco
-                    </p>
-                    <p className="mt-1 text-[11px] text-zinc-600">
-                      Lista em ordem alfabética — o logo aparecerá no cartão.
-                    </p>
-                    <div className="mt-3 flex max-h-60 flex-col gap-2 overflow-y-auto overscroll-contain rounded-2xl border border-white/[0.06] bg-black/20 p-1.5 pr-1 [-ms-overflow-style:none] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/15">
-                      {bancosLista.map((b) => {
-                        const ativo = selectedBanco === b.id;
-                        return (
-                          <button
-                            key={b.id}
-                            type="button"
-                            onClick={() => setSelectedBanco(b.id)}
-                            className={`flex w-full min-w-0 items-center gap-3 rounded-xl px-3 py-2.5 text-left transition ${
-                              ativo
-                                ? "border border-[#10B981]/45 bg-[#10B981]/14 ring-1 ring-[#10B981]/30"
-                                : "border border-transparent bg-white/[0.05] hover:bg-white/[0.085]"
-                            }`}
-                          >
-                            <BancoLogo key={b.domain} banco={b} sizeClass="h-9 w-9" />
-                            <span className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-100">
-                              {b.nome}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ) : null}
-
-                {cartaoEditando ? (
-                  <div className="pointer-events-none cursor-not-allowed opacity-50">
-                    <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-                      Banco
-                    </p>
-                    <p className="mt-1 text-[11px] text-zinc-600">
-                      Instituição vinculada a este cadastro não pode ser alterada.
-                    </p>
-                    <div
-                      className="mt-3 flex items-center gap-3 rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2.5"
-                      aria-readonly="true"
-                    >
-                      <BancoLogo
-                        key={bancoModalVisual.domain}
-                        banco={bancoModalVisual}
-                        sizeClass="h-9 w-9"
-                      />
-                      <span className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-200">
-                        {bancoModalVisual.nome}
-                      </span>
-                    </div>
-                  </div>
-                ) : null}
-
-                <div>
-                  <label
-                    htmlFor="cartao-nome"
-                    className="text-xs font-medium uppercase tracking-wide text-zinc-500"
-                  >
-                    Nome do cartão
-                  </label>
-                  <input
-                    id="cartao-nome"
-                    value={nome}
-                    onChange={(e) => setNome(e.target.value)}
-                    className="mt-1.5 w-full rounded-2xl border border-white/10 bg-[#1a1a1a] px-4 py-3 text-sm text-white outline-none ring-emerald-500/0 placeholder:text-zinc-600 focus:border-[#10B981]/35 focus:ring-2 focus:ring-[#10B981]/25"
-                    placeholder="Ex.: Platinum, Gold…"
-                    autoComplete="off"
-                    required
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label
-                      htmlFor="cartao-fechar"
-                      className="text-xs font-medium uppercase tracking-wide text-zinc-500"
-                    >
-                      Dia fechamento
-                    </label>
-                    <input
-                      id="cartao-fechar"
-                      type="text"
-                      inputMode="numeric"
-                      maxLength={2}
-                      value={diaFechamento}
-                      onChange={(e) =>
-                        setDiaFechamento(
-                          e.target.value.replace(/\D/g, "").slice(0, 2),
-                        )
-                      }
-                      className="mt-1.5 w-full rounded-2xl border border-white/10 bg-[#1a1a1a] px-4 py-3 text-sm tabular-nums text-white outline-none focus:border-[#10B981]/35 focus:ring-2 focus:ring-[#10B981]/25"
-                      placeholder="1–31"
-                      autoComplete="off"
-                    />
-                  </div>
-                  <div>
-                    <label
-                      htmlFor="cartao-venc"
-                      className="text-xs font-medium uppercase tracking-wide text-zinc-500"
-                    >
-                      Dia vencimento
-                    </label>
-                    <input
-                      id="cartao-venc"
-                      type="text"
-                      inputMode="numeric"
-                      maxLength={2}
-                      value={diaVencimento}
-                      onChange={(e) =>
-                        setDiaVencimento(
-                          e.target.value.replace(/\D/g, "").slice(0, 2),
-                        )
-                      }
-                      className="mt-1.5 w-full rounded-2xl border border-white/10 bg-[#1a1a1a] px-4 py-3 text-sm tabular-nums text-white outline-none focus:border-[#10B981]/35 focus:ring-2 focus:ring-[#10B981]/25"
-                      placeholder="1–31"
-                      autoComplete="off"
-                    />
-                  </div>
-                </div>
-                </div>
-                <div className="mt-8 flex gap-3 border-t border-white/10 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+      {isClient && isModalOpen
+        ? createPortal(
+            <div className="fixed inset-0 z-[80] flex flex-col justify-end lg:items-center lg:justify-center lg:p-6">
+              <button
+                type="button"
+                className="absolute inset-0 bg-black/60 backdrop-blur-[2px]"
+                aria-label="Fechar formulário"
+                onClick={fecharModal}
+              />
+              <div
+                className="vidro relative z-[1] mx-auto flex max-h-[min(92dvh,640px)] w-full max-w-[430px] flex-col overflow-hidden rounded-t-2xl !bg-superficie/90 lg:max-w-md lg:rounded-2xl"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="modal-cartoes-titulo"
+              >
+                <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-white/20 lg:hidden" aria-hidden />
+                <div className="flex shrink-0 items-center justify-between gap-3 px-4 pb-2 pt-2 lg:pt-4">
+                  <h2 id="modal-cartoes-titulo" className="text-base font-semibold text-texto">
+                    {cartaoEditando ? "Editar cartão" : "Novo cartão"}
+                  </h2>
                   <button
                     type="button"
-                    onClick={() => {
-                      resetForm();
-                      setIsModalOpen(false);
-                    }}
-                    className="flex-1 rounded-2xl border border-white/15 bg-transparent py-3.5 text-sm font-semibold text-zinc-200 transition hover:bg-white/[0.06]"
+                    onClick={fecharModal}
+                    aria-label="Fechar"
+                    className="flex h-9 w-9 touch-manipulation items-center justify-center rounded-full text-texto-2 hover:bg-white/[0.06] hover:text-texto"
                   >
-                    Cancelar
-                  </button>
-                  <button
-                    type="submit"
-                    className="flex-1 rounded-2xl bg-[#10B981] py-3.5 text-sm font-bold text-white shadow-inner shadow-black/25 transition hover:bg-[#0ea271]"
-                  >
-                    {cartaoEditando ? "Atualizar" : "Salvar"}
+                    <X className="h-[18px] w-[18px]" aria-hidden />
                   </button>
                 </div>
-              </form>
-            </div>
-          </div>
-        </div>
-      ) : null}
+
+                <form onSubmit={handleSalvarCartao} className="flex min-h-0 flex-1 flex-col">
+                  <div className="min-h-0 flex-1 space-y-3.5 overflow-y-auto overscroll-contain px-4 pb-4 pt-1 [-webkit-overflow-scrolling:touch]">
+                    {erroForm ? (
+                      <p
+                        role="alert"
+                        className="rounded-lg border border-negativo/30 bg-negativo/10 px-3 py-2 text-xs text-negativo"
+                      >
+                        {erroForm}
+                      </p>
+                    ) : null}
+
+                    <div>
+                      <span className={rotuloCampo}>Banco</span>
+                      {cartaoEditando ? (
+                        <div
+                          className={`${campoClasse} flex h-11 items-center gap-2.5 opacity-60`}
+                          aria-readonly="true"
+                        >
+                          <BancoLogo banco={bancoModalVisual} className="h-6 w-6" />
+                          <span className="min-w-0 flex-1 truncate">{bancoModalVisual.nome}</span>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setPickerAberto(true)}
+                          className={`${campoClasse} flex h-11 touch-manipulation items-center gap-2.5 text-left`}
+                        >
+                          <BancoLogo banco={bancoModalVisual} className="h-6 w-6" />
+                          <span className="min-w-0 flex-1 truncate">{bancoModalVisual.nome}</span>
+                          <ChevronDown className="h-4 w-4 shrink-0 text-texto-3" aria-hidden />
+                        </button>
+                      )}
+                      {cartaoEditando ? (
+                        <p className="mt-1 text-[11px] text-texto-3">
+                          A instituição não pode ser alterada.
+                        </p>
+                      ) : null}
+                    </div>
+
+                    <div>
+                      <label htmlFor="cartao-nome" className={rotuloCampo}>
+                        Nome do cartão
+                      </label>
+                      <input
+                        id="cartao-nome"
+                        value={nome}
+                        onChange={(e) => setNome(e.target.value)}
+                        className={campoClasse}
+                        placeholder="Ex.: Platinum, Gold…"
+                        autoComplete="off"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label htmlFor="cartao-limite" className={rotuloCampo}>
+                        Limite <span className="font-normal text-texto-3">(opcional)</span>
+                      </label>
+                      <div className="relative">
+                        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-texto-3">
+                          R$
+                        </span>
+                        <input
+                          id="cartao-limite"
+                          type="text"
+                          inputMode="numeric"
+                          value={limiteDigitos ? formatMaskedValorDisplay(limiteDigitos) : ""}
+                          onChange={(e) =>
+                            setLimiteDigitos(
+                              e.target.value
+                                .replace(/\D/g, "")
+                                .replace(/^0+/, "")
+                                .slice(0, MAX_AMOUNT_DIGITS_LANCAMENTO),
+                            )
+                          }
+                          className={`${campoClasse} valor pl-9`}
+                          placeholder="0,00"
+                          autoComplete="off"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label htmlFor="cartao-fechar" className={rotuloCampo}>
+                          Dia de fechamento
+                        </label>
+                        <input
+                          id="cartao-fechar"
+                          type="text"
+                          inputMode="numeric"
+                          maxLength={2}
+                          value={diaFechamento}
+                          onChange={(e) =>
+                            setDiaFechamento(e.target.value.replace(/\D/g, "").slice(0, 2))
+                          }
+                          className={`${campoClasse} valor`}
+                          placeholder="1–31"
+                          autoComplete="off"
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="cartao-venc" className={rotuloCampo}>
+                          Dia de vencimento
+                        </label>
+                        <input
+                          id="cartao-venc"
+                          type="text"
+                          inputMode="numeric"
+                          maxLength={2}
+                          value={diaVencimento}
+                          onChange={(e) =>
+                            setDiaVencimento(e.target.value.replace(/\D/g, "").slice(0, 2))
+                          }
+                          className={`${campoClasse} valor`}
+                          placeholder="1–31"
+                          autoComplete="off"
+                        />
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-texto-3">
+                      Compras a partir do dia de fechamento entram na fatura seguinte.
+                    </p>
+                  </div>
+
+                  <div className="flex shrink-0 gap-2 border-t border-borda px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+                    <Botao variante="fantasma" className="flex-1" onClick={fecharModal}>
+                      Cancelar
+                    </Botao>
+                    <Botao type="submit" variante="primario" className="flex-1" disabled={salvando}>
+                      {salvando ? "Salvando…" : cartaoEditando ? "Atualizar" : "Salvar"}
+                    </Botao>
+                  </div>
+                </form>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+
+      <InstituicaoPickerSheet
+        open={isModalOpen && pickerAberto}
+        selectedId={selectedBanco}
+        onClose={() => setPickerAberto(false)}
+        onSelect={(id) => setSelectedBanco(id)}
+      />
     </div>
   );
 }

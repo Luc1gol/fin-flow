@@ -11,9 +11,11 @@ import {
   type ChangeEvent,
   type FormEvent,
 } from "react";
-import { createPortal } from "react-dom";
+import { ChevronDown, Loader2, Repeat, Trash2 } from "lucide-react";
 import { TagsExtrasField } from "@/components/form/TagsExtrasField";
-import { ChevronDown, Landmark, Loader2, X } from "lucide-react";
+import { Botao, campoClasse } from "@/components/ui/base";
+import { IconeCategoria } from "@/components/ui/IconeCategoria";
+import { ExtratoFolha } from "@/components/extrato/ExtratoFolha";
 import type { LancamentoExtrato } from "@/types/lancamento";
 import { mapLancamentoRowFromDb } from "@/lib/map-lancamento-extrato";
 import {
@@ -50,16 +52,18 @@ type Props = {
   onClose: () => void;
   onSaved: (updated: LancamentoExtrato) => void;
   onRefreshList: () => void | Promise<void>;
+  /** Exclui o lançamento (o pai trata confirmação e recorrência). */
+  onDelete?: (item: LancamentoExtrato) => void;
+  /** Quando outra folha está por cima, o modal ignora o Esc. */
+  pausado?: boolean;
 };
 
 function noopSubscribe(): () => void {
   return () => {};
 }
 
-const ringFocus =
-  "focus-visible:ring-2 focus-visible:ring-[#10B981]/55 focus-visible:ring-offset-2 focus-visible:ring-offset-[#121212]";
-const inputGlass =
-  "rounded-2xl border border-white/10 bg-white/5 px-4 py-3.5 text-sm font-medium text-white outline-none backdrop-blur-sm transition-colors [color-scheme:dark]";
+const FORM_ID = "extrato-editar-form";
+const rotuloClasse = "block text-xs text-texto-2";
 
 export function ExtratoEditarLancamentoModal({
   item,
@@ -68,6 +72,8 @@ export function ExtratoEditarLancamentoModal({
   onClose,
   onSaved,
   onRefreshList,
+  onDelete,
+  pausado = false,
 }: Props) {
   const isClient = useSyncExternalStore(noopSubscribe, () => true, () => false);
   const [descricao, setDescricao] = useState(() => item.descricao);
@@ -128,6 +134,8 @@ export function ExtratoEditarLancamentoModal({
   }, [item.id]);
 
   useEffect(() => {
+    // Outra folha (ex.: exclusão em série) por cima trata o Esc.
+    if (pausado) return;
     function onKey(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
       if (recurrencePickerOpen && !scopeLoading) {
@@ -139,14 +147,9 @@ export function ExtratoEditarLancamentoModal({
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, recurrencePickerOpen, scopeLoading]);
+  }, [onClose, recurrencePickerOpen, scopeLoading, pausado]);
 
-  useEffect(() => {
-    setRecurrencePickerOpen(false);
-    pendingEditRef.current = null;
-    salvarExtratoLockRef.current = false;
-    scopeApplyLockRef.current = false;
-  }, [item.id]);
+  // O estado é reiniciado por `key={item.id}` no pai (o modal remonta a cada lançamento).
 
   useEffect(() => {
     const prev = document.body.style.overflow;
@@ -466,114 +469,135 @@ export function ExtratoEditarLancamentoModal({
     ],
   );
 
+
+  const fecharOuVoltar = () => {
+    if (saving || scopeLoading) return;
+    if (recurrencePickerOpen) {
+      setRecurrencePickerOpen(false);
+      pendingEditRef.current = null;
+      return;
+    }
+    onClose();
+  };
+
   if (!isClient) return null;
 
-  return createPortal(
+  const transferencia = item.tipo === "transferencia";
+  const rotuloTipo = transferencia
+    ? item.transferenciaSaida
+      ? "Transferência enviada"
+      : "Transferência recebida"
+    : item.tipo === "receita"
+      ? "Receita"
+      : "Despesa";
+  const corTipo = transferencia
+    ? "text-texto-3"
+    : item.tipo === "receita"
+      ? "text-positivo"
+      : "text-negativo";
+
+  return (
     <>
-    <div className="fixed inset-0 z-[120] flex flex-col justify-end sm:justify-center">
-      <button
-        type="button"
-        className="absolute inset-0 bg-black/70 backdrop-blur-[3px]"
-        aria-label="Fechar edição"
-        onClick={() => {
-          if (recurrencePickerOpen || scopeLoading) return;
-          onClose();
-        }}
-      />
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="extrato-edit-titulo"
-        className="relative z-[1] mx-auto mb-0 w-full max-w-[430px] rounded-t-[1.65rem] border border-white/12 bg-[#121212]/98 shadow-[0_-16px_64px_rgba(0,0,0,0.55)] backdrop-blur-xl sm:mb-auto sm:rounded-3xl sm:shadow-2xl"
-        onClick={(ev) => ev.stopPropagation()}
-      >
-        <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
-          <h2
-            id="extrato-edit-titulo"
-            className="text-lg font-semibold text-white"
-          >
-            Editar lançamento
-          </h2>
-          <button
-            type="button"
-            onClick={() => {
-              if (scopeLoading) return;
-              if (recurrencePickerOpen) {
-                setRecurrencePickerOpen(false);
-                pendingEditRef.current = null;
-                return;
-              }
-              onClose();
-            }}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.05] text-zinc-400 transition hover:bg-white/[0.09] hover:text-white"
-            aria-label="Fechar"
-          >
-            <X className="h-5 w-5" strokeWidth={2} aria-hidden />
-          </button>
-        </div>
-
-        <form
-          onSubmit={handleSubmit}
-          className="flex max-h-[min(88dvh,560px)] flex-col"
-        >
-          <div className="max-h-[min(62dvh,420px)] space-y-4 overflow-y-auto px-5 py-5">
-            {errorMsg ? (
-              <div
-                role="alert"
-                className="rounded-2xl border border-red-500/40 bg-red-500/12 px-4 py-3 text-sm text-[#FECACA]"
-              >
-                {errorMsg}
-              </div>
+      <ExtratoFolha
+        titulo="Editar lançamento"
+        tituloId="extrato-edit-titulo"
+        subtitulo={
+          <span className="inline-flex items-center gap-1">
+            <IconeCategoria
+              categoria={item.tag ?? item.categoriaNome}
+              transferencia={transferencia}
+              className={`h-3 w-3 ${corTipo}`}
+            />
+            <span className={corTipo}>{rotuloTipo}</span>
+            {item.recorrencia_id?.trim() ? (
+              <>
+                <span>·</span>
+                <Repeat className="h-3 w-3" aria-hidden />
+                <span>Recorrente</span>
+              </>
             ) : null}
-
-            <div>
-              <label
-                htmlFor="ext-edit-desc"
-                className="text-xs font-semibold uppercase tracking-wide text-zinc-500"
+          </span>
+        }
+        rotuloFundo="Fechar edição"
+        camada="z-[120]"
+        fecharDesabilitado={recurrencePickerOpen || scopeLoading}
+        onClose={fecharOuVoltar}
+        rodape={
+          <div className="flex items-center gap-2">
+            {onDelete ? (
+              <Botao
+                variante="fantasma"
+                className="!px-2.5 !text-negativo hover:!bg-negativo/10"
+                disabled={saving || scopeLoading}
+                onClick={() => onDelete(item)}
               >
-                Descrição
-              </label>
+                <Trash2 className="h-4 w-4" aria-hidden />
+                Excluir
+              </Botao>
+            ) : null}
+            <div className="flex-1" />
+            <Botao variante="fantasma" disabled={saving || scopeLoading} onClick={fecharOuVoltar}>
+              Cancelar
+            </Botao>
+            <Botao
+              type="submit"
+              form={FORM_ID}
+              variante="primario"
+              disabled={saving || scopeLoading || recurrencePickerOpen}
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
+              {saving ? "Salvando…" : "Salvar"}
+            </Botao>
+          </div>
+        }
+      >
+        <form id={FORM_ID} onSubmit={handleSubmit} className="flex flex-col gap-3">
+          {errorMsg ? (
+            <p role="alert" className="rounded-xl bg-negativo/10 px-3 py-2.5 text-sm text-negativo">
+              {errorMsg}
+            </p>
+          ) : null}
+
+          <div>
+            <label htmlFor="ext-edit-valor" className={rotuloClasse}>
+              Valor
+            </label>
+            <div className="relative mt-1">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-texto-3">
+                R$
+              </span>
               <input
-                id="ext-edit-desc"
-                value={descricao}
-                onChange={(e) => setDescricao(e.target.value)}
-                className={`${inputGlass} mt-2 w-full placeholder:text-zinc-600 ${ringFocus}`}
-                placeholder="Ex.: Mercado, salário"
+                ref={valorInputRef}
+                id="ext-edit-valor"
+                type="text"
+                inputMode="numeric"
                 autoComplete="off"
+                value={valorMasked}
+                onChange={handleValorChange}
+                className={`${campoClasse} valor h-11 pl-10 text-lg font-semibold`}
                 required
               />
             </div>
+          </div>
 
-            <div>
-              <label
-                htmlFor="ext-edit-valor"
-                className="text-xs font-semibold uppercase tracking-wide text-zinc-500"
-              >
-                Valor
-              </label>
-              <div className="mt-2 flex items-baseline gap-2">
-                <span className="text-sm font-semibold tabular-nums text-zinc-400">
-                  R$
-                </span>
-                <input
-                  ref={valorInputRef}
-                  id="ext-edit-valor"
-                  type="text"
-                  inputMode="numeric"
-                  autoComplete="off"
-                  value={valorMasked}
-                  onChange={handleValorChange}
-                  className={`${inputGlass} min-w-0 flex-1 tabular-nums placeholder:text-zinc-600 ${ringFocus}`}
-                  required
-                />
-              </div>
-            </div>
+          <div>
+            <label htmlFor="ext-edit-desc" className={rotuloClasse}>
+              Descrição
+            </label>
+            <input
+              id="ext-edit-desc"
+              value={descricao}
+              onChange={(e) => setDescricao(e.target.value)}
+              className={`${campoClasse} mt-1`}
+              placeholder="Ex.: Mercado, salário"
+              autoComplete="off"
+              required
+            />
+          </div>
 
-            <div>
-              <label
-                htmlFor="ext-edit-data"
-                className="text-xs font-semibold uppercase tracking-wide text-zinc-500"
-              >
+          <div className="grid grid-cols-2 gap-2">
+            <div className="min-w-0">
+              <label htmlFor="ext-edit-data" className={rotuloClasse}>
                 Data
               </label>
               <input
@@ -581,44 +605,12 @@ export function ExtratoEditarLancamentoModal({
                 type="date"
                 value={dataISO}
                 onChange={(e) => setDataISO(e.target.value)}
-                className={`${inputGlass} mt-2 w-full font-semibold ${ringFocus}`}
+                className={`${campoClasse} mt-1`}
                 required
               />
             </div>
-
-            <div>
-              <label
-                htmlFor="ext-edit-conta"
-                className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-zinc-500"
-              >
-                <Landmark className="h-3.5 w-3.5 text-zinc-500" aria-hidden />
-                Conta / Cartão
-              </label>
-              <div className="relative mt-2">
-                <select
-                  id="ext-edit-conta"
-                  value={contaState}
-                  onChange={(e) => setContaState(e.target.value)}
-                  className={`${inputGlass} block w-full min-w-0 cursor-pointer appearance-none bg-[#181818]/90 py-3.5 pr-11 [&>option]:bg-[#171717] [&>option]:text-zinc-100 ${ringFocus}`}
-                >
-                  {opcoesConta.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown
-                  className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500"
-                  aria-hidden
-                />
-              </div>
-            </div>
-
-            <div>
-              <label
-                htmlFor="ext-edit-cat"
-                className="text-xs font-semibold uppercase tracking-wide text-zinc-500"
-              >
+            <div className="min-w-0">
+              <label htmlFor="ext-edit-cat" className={rotuloClasse}>
                 Categoria
               </label>
               <input
@@ -626,8 +618,8 @@ export function ExtratoEditarLancamentoModal({
                 list={DATALIST_CATEGORIAS_ID}
                 value={categoria}
                 onChange={(e) => setCategoria(e.target.value)}
-                className={`${inputGlass} mt-2 w-full placeholder:text-zinc-600 ${ringFocus}`}
-                placeholder="Ex.: Alimentação, Transporte"
+                className={`${campoClasse} mt-1`}
+                placeholder="Ex.: Alimentação"
                 autoComplete="off"
               />
               <datalist id={DATALIST_CATEGORIAS_ID}>
@@ -636,132 +628,96 @@ export function ExtratoEditarLancamentoModal({
                 ))}
               </datalist>
             </div>
-
-            <TagsExtrasField
-              variant="extrato-edit"
-              inputId="ext-edit-tags-extras"
-              label="Tags"
-              tagsSelecionadas={tagsSelecionadas}
-              onTagsSelecionadasChange={setTagsSelecionadas}
-              tagInput={tagInput}
-              onTagInputChange={setTagInput}
-              tagsHistorico={tagsHistorico}
-              ringFocus={ringFocus}
-            />
           </div>
 
-          <div className="flex gap-3 border-t border-white/10 px-5 py-4 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
-            <button
-              type="button"
-              onClick={() => {
-                if (saving || scopeLoading) return;
-                if (recurrencePickerOpen) {
-                  setRecurrencePickerOpen(false);
-                  pendingEditRef.current = null;
-                  return;
-                }
-                onClose();
-              }}
-              disabled={saving || scopeLoading}
-              className="flex-1 rounded-2xl border border-white/15 bg-transparent py-3.5 text-sm font-semibold text-zinc-200 transition hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              disabled={saving || scopeLoading || recurrencePickerOpen}
-              className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-[#10B981] py-3.5 text-sm font-bold text-white shadow-inner shadow-black/25 transition hover:bg-[#0ea271] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {saving ? (
-                <Loader2
-                  className="h-4 w-4 shrink-0 animate-spin"
-                  strokeWidth={2}
-                  aria-hidden
-                />
-              ) : null}
-              {saving ? "Salvando…" : "Salvar alterações"}
-            </button>
+          <div>
+            <label htmlFor="ext-edit-conta" className={rotuloClasse}>
+              Conta / Cartão
+            </label>
+            <div className="relative mt-1">
+              <select
+                id="ext-edit-conta"
+                value={contaState}
+                onChange={(e) => setContaState(e.target.value)}
+                className={`${campoClasse} cursor-pointer appearance-none pr-9 [&>option]:bg-superficie [&>option]:text-texto`}
+              >
+                {opcoesConta.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown
+                className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-texto-3"
+                aria-hidden
+              />
+            </div>
           </div>
+
+          <TagsExtrasField
+            variant="extrato-edit"
+            inputId="ext-edit-tags-extras"
+            label="Tags"
+            tagsSelecionadas={tagsSelecionadas}
+            onTagsSelecionadasChange={setTagsSelecionadas}
+            tagInput={tagInput}
+            onTagInputChange={setTagInput}
+            tagsHistorico={tagsHistorico}
+            ringFocus=""
+          />
         </form>
-      </div>
-    </div>
+      </ExtratoFolha>
 
-    {recurrencePickerOpen ? (
-      <div
-        className="fixed inset-0 z-[130] flex flex-col justify-end sm:justify-center"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="extrato-rec-scope-titulo"
-      >
-        <button
-          type="button"
-          className="absolute inset-0 bg-black/80 backdrop-blur-sm"
-          aria-label="Fechar opções de recorrência"
-          disabled={scopeLoading}
-          onClick={() => {
-            if (scopeLoading) return;
+      {recurrencePickerOpen ? (
+        <ExtratoFolha
+          titulo="Recorrência"
+          tituloId="extrato-rec-scope-titulo"
+          rotuloFundo="Fechar opções de recorrência"
+          camada="z-[130]"
+          fecharDesabilitado={scopeLoading}
+          onClose={() => {
             setRecurrencePickerOpen(false);
             pendingEditRef.current = null;
           }}
-        />
-        <div className="relative z-[1] mx-auto mb-0 w-full max-w-[430px] rounded-t-[1.65rem] border border-white/12 bg-[#161616]/98 px-5 py-5 shadow-2xl backdrop-blur-xl sm:mb-auto sm:rounded-3xl">
-          <h3
-            id="extrato-rec-scope-titulo"
-            className="text-base font-semibold text-white"
-          >
-            Recorrência
-          </h3>
-          <p className="mt-2 text-sm leading-relaxed text-zinc-400">
-            Este lançamento faz parte de uma série recorrente. Deseja aplicar as
-            alterações só nesta data ou nesta e nas próximas parcelas da série?
+          rodape={
+            <div className="flex flex-col gap-2">
+              <Botao
+                variante="primario"
+                className="w-full"
+                disabled={scopeLoading}
+                onClick={() => void applyRecurrenceEdit("single")}
+              >
+                {scopeLoading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
+                {scopeLoading ? "Salvando…" : "Somente este"}
+              </Botao>
+              <Botao
+                className="w-full"
+                disabled={scopeLoading}
+                onClick={() => void applyRecurrenceEdit("series")}
+              >
+                {scopeLoading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
+                {scopeLoading ? "Salvando…" : "Este e os próximos"}
+              </Botao>
+              <Botao
+                variante="fantasma"
+                className="w-full"
+                disabled={scopeLoading}
+                onClick={() => {
+                  setRecurrencePickerOpen(false);
+                  pendingEditRef.current = null;
+                }}
+              >
+                Cancelar
+              </Botao>
+            </div>
+          }
+        >
+          <p className="text-sm leading-relaxed text-texto-2">
+            Este lançamento faz parte de uma série recorrente. Aplicar as alterações só nesta
+            data ou nesta e nas próximas da série?
           </p>
-          <div className="mt-5 flex flex-col gap-2.5">
-            <button
-              type="button"
-              disabled={scopeLoading}
-              onClick={() => void applyRecurrenceEdit("single")}
-              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#10B981] py-3.5 text-sm font-bold text-white shadow-inner shadow-black/25 transition hover:bg-[#0ea271] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {scopeLoading ? (
-                <Loader2
-                  className="h-4 w-4 shrink-0 animate-spin"
-                  strokeWidth={2}
-                  aria-hidden
-                />
-              ) : null}
-              {scopeLoading ? "Salvando…" : "Somente este"}
-            </button>
-            <button
-              type="button"
-              disabled={scopeLoading}
-              onClick={() => void applyRecurrenceEdit("series")}
-              className="flex w-full items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/[0.06] py-3.5 text-sm font-semibold text-white transition hover:bg-white/[0.1] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {scopeLoading ? (
-                <Loader2
-                  className="h-4 w-4 shrink-0 animate-spin"
-                  strokeWidth={2}
-                  aria-hidden
-                />
-              ) : null}
-              {scopeLoading ? "Salvando…" : "Este e os próximos"}
-            </button>
-            <button
-              type="button"
-              disabled={scopeLoading}
-              onClick={() => {
-                setRecurrencePickerOpen(false);
-                pendingEditRef.current = null;
-              }}
-              className="w-full rounded-2xl border border-white/10 py-3.5 text-sm font-semibold text-zinc-400 transition hover:bg-white/[0.04] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Cancelar
-            </button>
-          </div>
-        </div>
-      </div>
-    ) : null}
-    </>,
-    document.body,
+        </ExtratoFolha>
+      ) : null}
+    </>
   );
 }

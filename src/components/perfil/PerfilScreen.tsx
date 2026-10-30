@@ -9,15 +9,61 @@ import {
   type FormEvent,
 } from "react";
 import {
-  ArrowLeft,
-  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  KeyRound,
   Loader2,
-  Lock,
-  User,
+  LogOut,
+  Mail,
 } from "lucide-react";
 
 import { supabase } from "@/lib/supabase";
-import { apelidoPreferenciaFromRow } from "@/lib/profile-preferencia";
+import { Botao, Card, campoClasse } from "@/components/ui/base";
+
+const campo = `${campoClasse} h-10 rounded-xl`;
+
+/** Linha de configuração (estilo Ajustes do iOS) que expande conteúdo abaixo. */
+function LinhaExpansivel({
+  icone,
+  titulo,
+  subtitulo,
+  aberta,
+  onToggle,
+  children,
+}: {
+  icone: React.ReactNode;
+  titulo: string;
+  subtitulo?: string;
+  aberta: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={aberta}
+        className="flex min-h-12 w-full touch-manipulation items-center gap-3 px-4 py-2.5 text-left transition-colors active:bg-white/[0.03]"
+      >
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] text-texto-2 ring-1 ring-inset ring-white/[0.08]">
+          {icone}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm text-texto">{titulo}</span>
+          {subtitulo ? (
+            <span className="block truncate text-xs text-texto-3">{subtitulo}</span>
+          ) : null}
+        </span>
+        <ChevronRight
+          className={`h-4 w-4 shrink-0 text-texto-3 transition-transform ${aberta ? "rotate-90" : ""}`}
+          aria-hidden
+        />
+      </button>
+      {aberta ? <div className="px-4 pb-4 pt-1">{children}</div> : null}
+    </div>
+  );
+}
 
 function iniciaisDeNome(full: string): string {
   const parts = full.trim().split(/\s+/).filter(Boolean);
@@ -32,7 +78,7 @@ export function PerfilScreen() {
   const [contaNome, setContaNome] = useState("—");
   const [contaEmail, setContaEmail] = useState("");
 
-  const [secaoAtiva, setSecaoAtiva] = useState<"info" | "seguranca" | null>(
+  const [secaoAtiva, setSecaoAtiva] = useState<"email" | "senha" | null>(
     null,
   );
 
@@ -51,7 +97,7 @@ export function PerfilScreen() {
   const [saindoDaConta, setSaindoDaConta] = useState(false);
   const logoutEmAndamentoRef = useRef(false);
 
-  function toggleSecao(secao: "info" | "seguranca") {
+  function toggleSecao(secao: "email" | "senha") {
     setSecaoAtiva((prev) => (prev === secao ? null : secao));
   }
 
@@ -271,278 +317,223 @@ export function PerfilScreen() {
     }
   }, [limparEstadoLocalPerfil]);
 
+  const emailPrefix = (contaEmail || "").split("@")[0] || "";
+  const nomeTopo = apelido.trim() || nomeCompleto.trim() || emailPrefix || "—";
+  const iniciaisTopo =
+    apelido.trim() || nomeCompleto.trim() || contaNome.trim() || emailPrefix;
+
   return (
-    <div className="flex h-full w-full min-h-0 flex-col overflow-hidden">
-      <header className="relative mb-2 flex h-11 shrink-0 items-center justify-center px-4">
+    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden">
+      <header className="relative flex h-12 shrink-0 items-center justify-center px-4">
         <Link
           href="/inicio"
-          className="absolute left-4 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.05] text-zinc-300 transition-colors hover:bg-white/[0.08] hover:text-white"
+          className="vidro-suave absolute left-4 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full text-texto-2 transition-colors hover:text-texto"
           aria-label="Voltar para o início"
         >
-          <ArrowLeft className="h-5 w-5 stroke-[2]" aria-hidden />
+          <ChevronLeft className="h-5 w-5" aria-hidden />
         </Link>
-        <h1 className="text-base font-semibold text-white">Meu Perfil</h1>
+        <h1 className="text-base font-semibold text-texto">Perfil</h1>
       </header>
 
-      <div className="flex flex-1 min-h-0 w-full flex-col overflow-hidden">
-        <div className="flex flex-1 min-h-0 w-full overflow-y-auto px-4 pb-32 pt-2">
-          <div className="mx-auto flex w-full max-w-[398px] flex-col">
-            {(() => {
-              const emailPrefix = (contaEmail || "").split("@")[0] || "";
-              const nomeTopo =
-                apelido.trim() || nomeCompleto.trim() || emailPrefix || "—";
-              const iniciaisTopo =
-                apelido.trim() || nomeCompleto.trim() || contaNome.trim() || emailPrefix;
-              return (
-            <section
-              className="rounded-2xl border border-white/10 bg-white/5 p-6 shadow-[0_0_0_1px_rgba(255,255,255,0.04)_inset]"
-              aria-label="Informações da conta"
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-[calc(2rem+env(safe-area-inset-bottom))] pt-2">
+        <div className="mx-auto flex w-full max-w-md flex-col gap-6">
+          {/* Identidade */}
+          <section
+            className="flex items-center gap-3.5 px-1 pt-1"
+            aria-label="Informações da conta"
+          >
+            <div
+              className="vidro-marca flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-lg font-semibold tracking-tight"
+              aria-hidden
             >
-              <div className="flex flex-col items-center text-center">
-                <div
-                  className="flex h-24 w-24 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#10B981] via-[#059669] to-[#047857] text-2xl font-bold tracking-tight text-white shadow-lg shadow-black/40 ring-2 ring-white/10"
-                  aria-hidden
-                >
-                  {perfilCarregado ? iniciaisDeNome(iniciaisTopo) : "—"}
-                </div>
-                <p className="mt-5 text-lg font-semibold tracking-tight text-white">
-                  {nomeTopo}
-                </p>
-                <p className="mt-1 text-sm text-zinc-400">{contaEmail || "—"}</p>
-              </div>
-            </section>
-              );
-            })()}
-
-            <div className="mt-6 space-y-4">
-              {/* Informações Pessoais */}
-              <div className="overflow-hidden rounded-xl border border-zinc-700/60">
-                <button
-                  type="button"
-                  onClick={() => toggleSecao("info")}
-                  className={`flex w-full items-center gap-3 bg-zinc-800/50 p-4 text-left transition-colors hover:bg-zinc-800/60 ${secaoAtiva === "info" ? "rounded-t-xl" : "rounded-xl"}`}
-                  aria-expanded={secaoAtiva === "info"}
-                >
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.06] text-[#10B981]">
-                    <User className="h-5 w-5 stroke-[1.75]" aria-hidden />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-semibold text-zinc-100">
-                      Informações Pessoais
-                    </span>
-                    <span className="mt-0.5 block text-xs text-zinc-500">
-                      Apelido e nome completo
-                    </span>
-                  </span>
-                  <ChevronDown
-                    className={`h-5 w-5 shrink-0 text-zinc-400 transition-transform ${secaoAtiva === "info" ? "rotate-180" : ""}`}
-                    aria-hidden
-                  />
-                </button>
-
-                {secaoAtiva === "info" ? (
-                  <div className="bg-zinc-900/50 p-4">
-                    <div className="space-y-4">
-                      <div>
-                        <label
-                          htmlFor="perfil-apelido"
-                          className="text-xs font-medium text-zinc-500"
-                        >
-                          Como deseja ser chamado?
-                        </label>
-                        <input
-                          id="perfil-apelido"
-                          name="apelido"
-                          type="text"
-                          value={apelido}
-                          onChange={(e) => setApelido(e.target.value)}
-                          disabled={!perfilCarregado}
-                          placeholder="Ex.: Lu, Dani…"
-                          className="mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-800/50 px-3 py-2.5 text-sm text-zinc-100 outline-none ring-emerald-500/0 transition placeholder:text-zinc-600 focus:border-emerald-500/40 focus:ring-2 focus:ring-emerald-500/20 disabled:opacity-60"
-                          autoComplete="nickname"
-                        />
-                      </div>
-
-                      <div>
-                        <label
-                          htmlFor="perfil-nome-completo"
-                          className="text-xs font-medium text-zinc-500"
-                        >
-                          Nome Completo
-                        </label>
-                        <input
-                          id="perfil-nome-completo"
-                          name="nomeCompleto"
-                          type="text"
-                          value={nomeCompleto}
-                          onChange={(e) => setNomeCompleto(e.target.value)}
-                          disabled={!perfilCarregado}
-                          placeholder="Seu nome"
-                          className="mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-800/50 px-3 py-2.5 text-sm text-zinc-100 outline-none ring-emerald-500/0 transition placeholder:text-zinc-600 focus:border-emerald-500/40 focus:ring-2 focus:ring-emerald-500/20 disabled:opacity-60"
-                          autoComplete="name"
-                        />
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      disabled={salvandoInfo || !perfilCarregado}
-                      onClick={() => void handleSalvarInformacoes()}
-                      className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-[#10B981] py-3 text-sm font-bold text-white shadow-[0_1px_0_rgba(255,255,255,0.12)_inset] transition-[filter] hover:brightness-110 active:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {salvandoInfo ? (
-                        <Loader2
-                          className="h-4 w-4 shrink-0 animate-spin"
-                          strokeWidth={2}
-                          aria-hidden
-                        />
-                      ) : null}
-                      {salvandoInfo ? "Salvando…" : "Salvar Informações"}
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-
-              {/* Segurança */}
-              <div className="overflow-hidden rounded-xl border border-zinc-700/60">
-                <button
-                  type="button"
-                  onClick={() => toggleSecao("seguranca")}
-                  className={`flex w-full items-center gap-3 bg-zinc-800/50 p-4 text-left transition-colors hover:bg-zinc-800/60 ${secaoAtiva === "seguranca" ? "rounded-t-xl" : "rounded-xl"}`}
-                  aria-expanded={secaoAtiva === "seguranca"}
-                >
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.06] text-[#10B981]">
-                    <Lock className="h-5 w-5 stroke-[1.75]" aria-hidden />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-semibold text-zinc-100">
-                      Segurança e Acesso
-                    </span>
-                    <span className="mt-0.5 block text-xs text-zinc-500">
-                      E-mail e senha
-                    </span>
-                  </span>
-                  <ChevronDown
-                    className={`h-5 w-5 shrink-0 text-zinc-400 transition-transform ${secaoAtiva === "seguranca" ? "rotate-180" : ""}`}
-                    aria-hidden
-                  />
-                </button>
-
-                {secaoAtiva === "seguranca" ? (
-                  <div className="bg-zinc-900/50 p-4">
-                    <div>
-                      <label
-                        htmlFor="perfil-novo-email"
-                        className="text-xs font-medium text-zinc-500"
-                      >
-                        Novo E-mail
-                      </label>
-                      <input
-                        id="perfil-novo-email"
-                        name="novoEmail"
-                        type="email"
-                        value={novoEmail}
-                        onChange={(e) => setNovoEmail(e.target.value)}
-                        placeholder="novo@email.com"
-                        className="mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-800/50 px-3 py-2.5 text-sm text-zinc-100 outline-none ring-emerald-500/0 transition placeholder:text-zinc-600 focus:border-emerald-500/40 focus:ring-2 focus:ring-emerald-500/20"
-                        autoComplete="email"
-                      />
-                      <button
-                        type="button"
-                        disabled={loadingEmail}
-                        onClick={() => void handleAtualizarEmail()}
-                        className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-[#10B981] py-3 text-sm font-bold text-white shadow-[0_1px_0_rgba(255,255,255,0.12)_inset] transition-[filter] hover:brightness-110 active:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {loadingEmail ? (
-                          <Loader2
-                            className="h-4 w-4 shrink-0 animate-spin"
-                            strokeWidth={2}
-                            aria-hidden
-                          />
-                        ) : null}
-                        {loadingEmail ? "Processando…" : "Atualizar E-mail"}
-                      </button>
-                    </div>
-
-                    <hr className="my-4 border-zinc-800" />
-
-                    <form onSubmit={handleAtualizarSenha}>
-                      <div>
-                        <label
-                          htmlFor="perfil-nova-senha"
-                          className="text-xs font-medium text-zinc-500"
-                        >
-                          Nova Senha
-                        </label>
-                        <input
-                          id="perfil-nova-senha"
-                          name="novaSenha"
-                          type="password"
-                          autoComplete="new-password"
-                          value={novaSenha}
-                          onChange={(e) => setNovaSenha(e.target.value)}
-                          placeholder="••••••••"
-                          className="mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-800/50 px-3 py-2.5 text-sm text-zinc-100 outline-none ring-emerald-500/0 transition placeholder:text-zinc-600 focus:border-emerald-500/40 focus:ring-2 focus:ring-emerald-500/20"
-                        />
-                      </div>
-
-                      <div className="mt-4">
-                        <label
-                          htmlFor="perfil-confirmar-senha"
-                          className="text-xs font-medium text-zinc-500"
-                        >
-                          Confirmar Nova Senha
-                        </label>
-                        <input
-                          id="perfil-confirmar-senha"
-                          name="confirmarSenha"
-                          type="password"
-                          autoComplete="new-password"
-                          value={confirmarSenha}
-                          onChange={(e) => setConfirmarSenha(e.target.value)}
-                          placeholder="••••••••"
-                          className="mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-800/50 px-3 py-2.5 text-sm text-zinc-100 outline-none ring-emerald-500/0 transition placeholder:text-zinc-600 focus:border-emerald-500/40 focus:ring-2 focus:ring-emerald-500/20"
-                        />
-                      </div>
-
-                      <button
-                        type="submit"
-                        disabled={loadingSenha}
-                        className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-[#10B981] py-3 text-sm font-bold text-white shadow-[0_1px_0_rgba(255,255,255,0.12)_inset] transition-[filter] hover:brightness-110 active:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {loadingSenha ? (
-                          <Loader2
-                            className="h-4 w-4 shrink-0 animate-spin"
-                            strokeWidth={2}
-                            aria-hidden
-                          />
-                        ) : null}
-                        {loadingSenha ? "Processando…" : "Atualizar Senha"}
-                      </button>
-                    </form>
-                  </div>
-                ) : null}
-              </div>
+              {perfilCarregado ? iniciaisDeNome(iniciaisTopo) : "—"}
             </div>
+            <div className="min-w-0">
+              <p className="truncate text-base font-semibold tracking-tight text-texto">
+                {perfilCarregado ? nomeTopo : "Carregando…"}
+              </p>
+              <p className="truncate text-sm text-texto-2">{contaEmail || "—"}</p>
+            </div>
+          </section>
 
-            <div className="mt-12">
-              <button
-                type="button"
-                onClick={() => void handleLogout()}
-                disabled={saindoDaConta}
-                className="flex w-full items-center justify-center gap-2 rounded-2xl border border-red-500/40 bg-red-950/35 py-3.5 text-sm font-semibold text-red-400 shadow-[0_0_0_1px_rgba(239,68,68,0.08)_inset] transition-colors hover:border-red-500/55 hover:bg-red-950/45 hover:text-red-300 active:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
+          {/* Seus dados */}
+          <section aria-labelledby="perfil-secao-dados">
+            <h2
+              id="perfil-secao-dados"
+              className="mb-1.5 px-1 text-xs font-medium uppercase tracking-wide text-texto-3"
+            >
+              Seus dados
+            </h2>
+            <Card className="divide-y divide-borda overflow-hidden">
+              <label
+                htmlFor="perfil-nome-completo"
+                className="flex min-h-12 items-center gap-3 px-4"
               >
-                {saindoDaConta ? (
-                  <Loader2
-                    className="h-4 w-4 shrink-0 animate-spin"
-                    strokeWidth={2}
-                    aria-hidden
-                  />
-                ) : null}
-                {saindoDaConta ? "Saindo…" : "Sair da conta"}
-              </button>
-            </div>
-          </div>
+                <span className="w-28 shrink-0 text-sm text-texto">Nome completo</span>
+                <input
+                  id="perfil-nome-completo"
+                  name="nomeCompleto"
+                  type="text"
+                  value={nomeCompleto}
+                  onChange={(e) => setNomeCompleto(e.target.value)}
+                  disabled={!perfilCarregado}
+                  placeholder="Seu nome"
+                  className="h-11 min-w-0 flex-1 bg-transparent text-right text-sm text-texto outline-none placeholder:text-texto-3 disabled:opacity-60"
+                  autoComplete="name"
+                />
+              </label>
+              <label
+                htmlFor="perfil-apelido"
+                className="flex min-h-12 items-center gap-3 px-4"
+              >
+                <span className="w-28 shrink-0 text-sm text-texto">Apelido</span>
+                <input
+                  id="perfil-apelido"
+                  name="apelido"
+                  type="text"
+                  value={apelido}
+                  onChange={(e) => setApelido(e.target.value)}
+                  disabled={!perfilCarregado}
+                  placeholder="Como deseja ser chamado?"
+                  className="h-11 min-w-0 flex-1 bg-transparent text-right text-sm text-texto outline-none placeholder:text-texto-3 disabled:opacity-60"
+                  autoComplete="nickname"
+                />
+              </label>
+            </Card>
+            <Botao
+              variante="primario"
+              disabled={salvandoInfo || !perfilCarregado}
+              onClick={() => void handleSalvarInformacoes()}
+              className="mt-3 w-full"
+            >
+              {salvandoInfo ? (
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+              ) : null}
+              {salvandoInfo ? "Salvando…" : "Salvar alterações"}
+            </Botao>
+          </section>
+
+          {/* Conta */}
+          <section aria-labelledby="perfil-secao-conta">
+            <h2
+              id="perfil-secao-conta"
+              className="mb-1.5 px-1 text-xs font-medium uppercase tracking-wide text-texto-3"
+            >
+              Conta
+            </h2>
+            <Card className="divide-y divide-borda overflow-hidden">
+              <LinhaExpansivel
+                icone={<Mail className="h-4 w-4" aria-hidden />}
+                titulo="Alterar e-mail"
+                subtitulo={contaEmail || undefined}
+                aberta={secaoAtiva === "email"}
+                onToggle={() => toggleSecao("email")}
+              >
+                <label
+                  htmlFor="perfil-novo-email"
+                  className="mb-1 block text-xs font-medium text-texto-2"
+                >
+                  Novo e-mail
+                </label>
+                <input
+                  id="perfil-novo-email"
+                  name="novoEmail"
+                  type="email"
+                  inputMode="email"
+                  value={novoEmail}
+                  onChange={(e) => setNovoEmail(e.target.value)}
+                  placeholder="novo@email.com"
+                  className={campo}
+                  autoComplete="email"
+                />
+                <Botao
+                  variante="primario"
+                  disabled={loadingEmail}
+                  onClick={() => void handleAtualizarEmail()}
+                  className="mt-3 w-full"
+                >
+                  {loadingEmail ? (
+                    <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+                  ) : null}
+                  {loadingEmail ? "Processando…" : "Atualizar e-mail"}
+                </Botao>
+              </LinhaExpansivel>
+
+              <LinhaExpansivel
+                icone={<KeyRound className="h-4 w-4" aria-hidden />}
+                titulo="Alterar senha"
+                aberta={secaoAtiva === "senha"}
+                onToggle={() => toggleSecao("senha")}
+              >
+                <form onSubmit={handleAtualizarSenha} className="space-y-3">
+                  <div>
+                    <label
+                      htmlFor="perfil-nova-senha"
+                      className="mb-1 block text-xs font-medium text-texto-2"
+                    >
+                      Nova senha
+                    </label>
+                    <input
+                      id="perfil-nova-senha"
+                      name="novaSenha"
+                      type="password"
+                      autoComplete="new-password"
+                      value={novaSenha}
+                      onChange={(e) => setNovaSenha(e.target.value)}
+                      placeholder="Mínimo de 6 caracteres"
+                      className={campo}
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="perfil-confirmar-senha"
+                      className="mb-1 block text-xs font-medium text-texto-2"
+                    >
+                      Confirmar nova senha
+                    </label>
+                    <input
+                      id="perfil-confirmar-senha"
+                      name="confirmarSenha"
+                      type="password"
+                      autoComplete="new-password"
+                      value={confirmarSenha}
+                      onChange={(e) => setConfirmarSenha(e.target.value)}
+                      placeholder="Repita a nova senha"
+                      className={campo}
+                    />
+                  </div>
+                  <Botao
+                    type="submit"
+                    variante="primario"
+                    disabled={loadingSenha}
+                    className="w-full"
+                  >
+                    {loadingSenha ? (
+                      <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+                    ) : null}
+                    {loadingSenha ? "Processando…" : "Atualizar senha"}
+                  </Botao>
+                </form>
+              </LinhaExpansivel>
+            </Card>
+          </section>
+
+          {/* Sair */}
+          <Card className="overflow-hidden">
+            <button
+              type="button"
+              onClick={() => void handleLogout()}
+              disabled={saindoDaConta}
+              className="flex min-h-12 w-full touch-manipulation items-center justify-center gap-2 px-4 text-sm font-semibold text-negativo transition-colors active:bg-white/[0.03] disabled:opacity-50"
+            >
+              {saindoDaConta ? (
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+              ) : (
+                <LogOut className="h-4 w-4 shrink-0" aria-hidden />
+              )}
+              {saindoDaConta ? "Saindo…" : "Sair da conta"}
+            </button>
+          </Card>
         </div>
       </div>
     </div>

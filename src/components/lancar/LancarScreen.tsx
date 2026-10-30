@@ -7,20 +7,21 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type ReactNode,
 } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { PaymentMethod } from "@/types/finflow";
 import {
+  AlertCircle,
   ArrowLeft,
   Calendar,
+  Check,
   CheckCircle2,
   ChevronDown,
   FileUp,
   Loader2,
-  Hash,
   Landmark,
-  LayoutGrid,
   PenLine,
   Receipt,
   Repeat,
@@ -28,7 +29,8 @@ import {
   Wallet,
 } from "lucide-react";
 import { TagsExtrasField } from "@/components/form/TagsExtrasField";
-import { GlassPanel } from "@/components/ui/glass-panel";
+import { Botao, Card, campoClasse } from "@/components/ui/base";
+import { IconeCategoria } from "@/components/ui/IconeCategoria";
 import { mergeCategoriasPadraoComBanco } from "@/lib/categorias-padrao";
 import { fetchDistinctTagsForUser } from "@/lib/categorias-tags";
 import { fetchDistinctTagsExtrasHistoricoForUser } from "@/lib/tags-extras-historico";
@@ -255,29 +257,12 @@ export function LancarScreen() {
     return [...fixa, ...dosCartoes];
   }, [cartoesUsuario]);
 
-  useEffect(() => {
-    if (
-      opcoesOrigemContaCartao.some((o) => o.value === contaState)
-    ) {
-      return;
-    }
-    setContaState(CONTA_CORRENTE_LABEL);
-  }, [opcoesOrigemContaCartao, contaState]);
+  // Se o cartão escolhido sumiu da lista, volta para a conta corrente.
+  const contaEfetiva = opcoesOrigemContaCartao.some((o) => o.value === contaState)
+    ? contaState
+    : CONTA_CORRENTE_LABEL;
 
-  const ringFocus =
-    tipo === "despesa"
-      ? "focus-visible:ring-2 focus-visible:ring-[#EF4444]/55 focus-visible:ring-offset-2 focus-visible:ring-offset-[#121212]"
-      : "focus-visible:ring-2 focus-visible:ring-[#10B981]/55 focus-visible:ring-offset-2 focus-visible:ring-offset-[#121212]";
-
-  const accentValue =
-    tipo === "despesa" ? "text-[#EF4444]" : "text-[#10B981]";
-  const accentMuted =
-    tipo === "despesa"
-      ? "border-red-500/35 bg-red-500/14 text-red-200"
-      : "border-[#10B981]/40 bg-[#10B981]/12 text-emerald-200";
-
-  const inputGlass =
-    "rounded-2xl border border-white/10 bg-white/5 px-4 py-3.5 text-sm font-medium text-white outline-none backdrop-blur-sm transition-colors [color-scheme:dark]";
+  const accentValue = tipo === "despesa" ? "text-negativo" : "text-positivo";
 
   const parsedAmount = useMemo(
     () => parseAmountDigitsToReais(amountDigits),
@@ -312,10 +297,17 @@ export function LancarScreen() {
     );
   }, [categoriasSalvas, category]);
 
-  const submitBg =
-    tipo === "despesa"
-      ? "bg-[#EF4444] shadow-lg shadow-[#EF4444]/25 hover:bg-red-600"
-      : "bg-[#10B981] shadow-lg shadow-[#10B981]/25 hover:bg-[#0ea271]";
+  const isCredito = tipo === "despesa" && paymentMethod === "credito";
+
+  /** Prévia do valor de cada parcela (apenas exibição; o cálculo real ocorre ao salvar). */
+  const previaParcela = useMemo(() => {
+    if (parcelas <= 1 || parsedAmount <= 0) return null;
+    const valores = splitTotalReaisEmParcelas(parsedAmount, parcelas);
+    return valores[0] ?? null;
+  }, [parcelas, parsedAmount]);
+
+  const semCartaoParaMeio =
+    tipo === "despesa" && showCardPicker && cartoesUsuario.length === 0;
 
   function onPaymentPick(id: PaymentMethod) {
     setPaymentMethod(id);
@@ -363,7 +355,7 @@ export function LancarScreen() {
       }
       if (!tituloOuLocal.trim()) {
         setSubmitError(
-          'Preencha a descrição do lançamento (campo "Descrição / Local").',
+          'Preencha a descrição do lançamento (campo "Descrição").',
         );
         return;
       }
@@ -375,8 +367,8 @@ export function LancarScreen() {
           return;
         }
         if (
-          contaState === CONTA_CORRENTE_LABEL ||
-          !/^cartao:/.test(contaState)
+          contaEfetiva === CONTA_CORRENTE_LABEL ||
+          !/^cartao:/.test(contaEfetiva)
         ) {
           setSubmitError(
             "Selecione o cartão na origem do dinheiro (Conta/Cartão).",
@@ -404,7 +396,7 @@ export function LancarScreen() {
         tipo === "receita"
           ? CONTA_CORRENTE_LABEL
           : contaCartaoParaColunaDb(
-              contaState.trim(),
+              contaEfetiva.trim(),
               cartoesUsuario,
             ).trim() || CONTA_CORRENTE_LABEL;
 
@@ -531,7 +523,6 @@ export function LancarScreen() {
     } catch (error) {
       console.error("Erro no Supabase:", error);
       setSubmitError(errorMessageFromSupabase(error));
-      window.alert("Erro ao salvar o lançamento.");
     } finally {
       confirmarLancamentoLockRef.current = false;
       setIsLoading(false);
@@ -539,70 +530,68 @@ export function LancarScreen() {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <header className="relative mb-6 flex h-11 shrink-0 items-center justify-center">
+    <div className="flex min-h-full flex-1 flex-col">
+      <header className="grid shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-2">
         <Link
           href="/inicio"
-          className="absolute left-0 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.05] text-zinc-300 transition-colors hover:bg-white/[0.08] hover:text-white"
           aria-label="Voltar para o início"
+          className="vidro-suave flex h-9 w-9 touch-manipulation items-center justify-center justify-self-start rounded-full text-texto-2 transition hover:text-texto active:scale-95"
         >
-          <ArrowLeft className="h-5 w-5 stroke-[2]" aria-hidden />
+          <ArrowLeft className="h-[18px] w-[18px]" aria-hidden />
         </Link>
-        <h1 className="text-base font-semibold text-white">
-          Novo Lançamento
-        </h1>
+        <h1 className="text-base font-semibold text-texto">Novo lançamento</h1>
         <Link
           href="/importar"
-          className="absolute right-0 top-1/2 flex h-10 -translate-y-1/2 items-center gap-1.5 rounded-2xl border border-white/10 bg-white/[0.05] px-3 text-xs font-semibold text-zinc-300 transition-colors hover:bg-white/[0.08] hover:text-white"
+          className="vidro inline-flex h-8 touch-manipulation items-center gap-1.5 justify-self-end rounded-full px-3 text-xs font-medium text-texto-2 transition hover:text-texto active:scale-95"
         >
-          <FileUp className="h-4 w-4" aria-hidden />
+          <FileUp className="h-3.5 w-3.5" aria-hidden />
           Importar
         </Link>
       </header>
 
-      <div className="mb-6 shrink-0 rounded-2xl border border-white/10 bg-white/[0.04] p-1 backdrop-blur-sm">
-        <div className="grid grid-cols-2 gap-1">
-          <button
-            type="button"
-            onClick={() => setTipo("despesa")}
-            className={`rounded-xl py-3 text-sm font-semibold transition ${
-              tipo === "despesa"
-                ? "bg-[#EF4444]/22 text-[#FECACA] shadow-inner shadow-black/20"
-                : "text-zinc-500 hover:text-zinc-300"
-            }`}
-          >
-            Despesa
-          </button>
-          <button
-            type="button"
-            onClick={() => setTipo("receita")}
-            className={`rounded-xl py-3 text-sm font-semibold transition ${
-              tipo === "receita"
-                ? "bg-[#10B981]/22 text-emerald-200 shadow-inner shadow-black/20"
-                : "text-zinc-500 hover:text-zinc-300"
-            }`}
-          >
-            Receita
-          </button>
-        </div>
+      <div
+        role="radiogroup"
+        aria-label="Tipo de lançamento"
+        className="vidro mx-auto mt-5 grid w-full max-w-[16rem] shrink-0 grid-cols-2 gap-1 rounded-full p-1"
+      >
+        {(
+          [
+            { id: "despesa", label: "Despesa", ativo: "bg-negativo/15 text-negativo ring-negativo/30" },
+            { id: "receita", label: "Receita", ativo: "bg-positivo/15 text-positivo ring-positivo/30" },
+          ] as const
+        ).map((opt) => {
+          const selected = tipo === opt.id;
+          return (
+            <button
+              key={opt.id}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              onClick={() => setTipo(opt.id)}
+              className={`h-9 touch-manipulation rounded-full text-sm font-semibold transition ${
+                selected
+                  ? `${opt.ativo} ring-1 ring-inset`
+                  : "text-texto-3 hover:text-texto-2"
+              }`}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
       </div>
 
-      <section
-        className="mb-8 shrink-0 px-1 text-center"
-        aria-labelledby="valor-lbl"
-      >
+      <section className="shrink-0 py-6 text-center" aria-labelledby="valor-lbl">
         <label
           id="valor-lbl"
-          className="text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-500"
           htmlFor="lanc-valor-input"
+          className="text-xs font-medium text-texto-3"
         >
-          Valor
+          {tipo === "despesa" ? "Valor da despesa" : "Valor da receita"}
         </label>
-        <div className="mt-3 flex flex-wrap items-baseline justify-center gap-x-2 gap-y-1">
-          <span
-            className={`inline-block text-2xl font-bold tabular-nums leading-none md:text-3xl ${accentValue}`}
-            aria-hidden
-          >
+        <div
+          className={`mt-1 flex items-baseline justify-center gap-1.5 ${accentValue}`}
+        >
+          <span className="text-xl font-semibold leading-none" aria-hidden>
             R$
           </span>
           <input
@@ -615,7 +604,10 @@ export function LancarScreen() {
             enterKeyHint="done"
             value={valorFormatadoInput}
             onChange={handleValorInputChange}
-            className={`inline-block max-w-[min(100vw-4rem,16rem)] min-w-[8ch] border-none bg-transparent text-center text-5xl font-bold leading-none tracking-tight outline-none caret-white placeholder:text-zinc-700 focus:ring-0 sm:text-6xl md:max-w-[18rem] tabular-nums ${accentValue}`}
+            style={{ width: `${Math.max(4, valorFormatadoInput.length) + 0.5}ch` }}
+            className={`valor min-w-0 max-w-full border-none bg-transparent p-0 text-left text-[40px] font-semibold leading-none tracking-tight outline-none caret-marca focus:ring-0 ${
+              parsedAmount <= 0 ? "opacity-50" : ""
+            }`}
           />
         </div>
         <p id="valor-previa" className="sr-only">
@@ -623,359 +615,331 @@ export function LancarScreen() {
         </p>
       </section>
 
-      <div className="relative flex min-h-0 flex-1 flex-col">
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain pb-[calc(18.5rem+env(safe-area-inset-bottom))]">
-          <GlassPanel className="p-4 transition-all duration-300">
-            <div className="flex gap-3">
-              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-black/30 text-zinc-300">
-                <Calendar className="h-6 w-6" aria-hidden strokeWidth={1.75} />
-              </span>
-              <div className="min-w-0 flex-1">
-                <label
-                  htmlFor="lanc-date"
-                  className="block text-xs font-semibold uppercase tracking-wide text-zinc-500"
-                >
-                  Data
-                </label>
-                <input
-                  id="lanc-date"
-                  type="date"
-                  value={transactionDate}
-                  onChange={(e) => setTransactionDate(e.target.value)}
-                  className={`${inputGlass} mt-2 w-full font-semibold placeholder:text-zinc-600 ${ringFocus}`}
-                />
-              </div>
-            </div>
-          </GlassPanel>
+      <div className="flex flex-col gap-3 pb-36 lg:pb-4">
+        <Card className="divide-y divide-borda">
+          <Linha icone={<Store className="h-4 w-4" aria-hidden />} rotulo="Descrição" htmlFor="lanc-titulo-local">
+            <input
+              id="lanc-titulo-local"
+              type="text"
+              required
+              aria-required="true"
+              value={tituloOuLocal}
+              onChange={(e) => {
+                setTituloOuLocal(e.target.value);
+                setSubmitError(null);
+              }}
+              placeholder="Ex.: Mercado, Uber"
+              autoComplete="off"
+              enterKeyHint="next"
+              className={controleLinha}
+            />
+          </Linha>
 
-          <GlassPanel className="p-4 transition-all duration-300">
-            <div className="flex gap-3">
-              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-black/30 text-zinc-300">
-                <Store className="h-6 w-6" aria-hidden strokeWidth={1.75} />
-              </span>
-              <div className="min-w-0 flex-1">
-                <label
-                  htmlFor="lanc-titulo-local"
-                  className="block text-xs font-semibold uppercase tracking-wide text-zinc-500"
-                >
-                  Descrição / Local
-                  <span className="ml-1 text-[10px] font-normal normal-case tracking-normal text-[#EF4444]">
-                    *
-                  </span>
-                </label>
-                <input
-                  id="lanc-titulo-local"
-                  type="text"
-                  required
-                  value={tituloOuLocal}
-                  onChange={(e) => {
-                    setTituloOuLocal(e.target.value);
-                    setSubmitError(null);
-                  }}
-                  placeholder="Ex: Mercearia do Seu Zé, Uber"
-                  autoComplete="off"
-                  className={`${inputGlass} mt-2 w-full placeholder:text-zinc-500 ${ringFocus}`}
-                />
-              </div>
-            </div>
-          </GlassPanel>
+          <Linha
+            icone={<IconeCategoria categoria={category} className="h-4 w-4" />}
+            rotulo="Categoria"
+            htmlFor="lanc-categoria-input"
+          >
+            <input
+              id="lanc-categoria-input"
+              list={DATALIST_CATEGORIAS_LANCAR_ID}
+              type="text"
+              value={category}
+              onChange={(e) => {
+                setCategory(e.target.value);
+                setSubmitError(null);
+              }}
+              placeholder="Escolher"
+              autoComplete="off"
+              className={controleLinha}
+            />
+            <datalist id={DATALIST_CATEGORIAS_LANCAR_ID}>
+              {opcoesCategoriaDatalist.map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
+          </Linha>
 
-          <GlassPanel className="relative z-30 overflow-visible p-4 transition-all duration-300">
-            <div className="flex gap-3">
-              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-black/30 text-zinc-300">
-                <LayoutGrid className="h-6 w-6" aria-hidden strokeWidth={1.75} />
-              </span>
-              <div className="min-w-0 flex-1">
-                <label
-                  htmlFor="lanc-categoria-input"
-                  id="lanc-category-lbl"
-                  className="block text-xs font-semibold uppercase tracking-wide text-zinc-500"
-                >
-                  Categoria
-                </label>
-                <input
-                  id="lanc-categoria-input"
-                  list={DATALIST_CATEGORIAS_LANCAR_ID}
-                  type="text"
-                  aria-labelledby="lanc-category-lbl"
-                  value={category}
-                  onChange={(e) => {
-                    setCategory(e.target.value);
-                    setSubmitError(null);
-                  }}
-                  placeholder="Digite ou escolha nas sugestões"
-                  autoComplete="off"
-                  className={`${inputGlass} mt-2 w-full placeholder:text-zinc-500 ${ringFocus}`}
-                />
-                <datalist id={DATALIST_CATEGORIAS_LANCAR_ID}>
-                  {opcoesCategoriaDatalist.map((c) => (
-                    <option key={c} value={c} />
-                  ))}
-                </datalist>
-              </div>
-            </div>
-          </GlassPanel>
+          <Linha icone={<Calendar className="h-4 w-4" aria-hidden />} rotulo="Data" htmlFor="lanc-date">
+            <input
+              id="lanc-date"
+              type="date"
+              value={transactionDate}
+              onChange={(e) => setTransactionDate(e.target.value)}
+              className={`${controleLinha} [&::-webkit-date-and-time-value]:text-right`}
+            />
+          </Linha>
+        </Card>
 
-          {tipo === "despesa" ? (
-            <>
-              <GlassPanel className="p-4 transition-all duration-300">
-                <div className="flex gap-3">
-                  <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-black/30 text-zinc-300">
-                    <Wallet className="h-6 w-6" aria-hidden strokeWidth={1.75} />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                      Meio de pagamento
-                    </p>
-                    <div
-                      className="-mx-2 mt-3 flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-                      role="toolbar"
-                      aria-label="Seleção do meio de pagamento"
-                    >
-                      {PAYMENT_OPTIONS.map((opt) => {
-                        const selected = paymentMethod === opt.id;
-                        return (
-                          <button
-                            key={opt.id}
-                            type="button"
-                            className={`shrink-0 rounded-full border px-4 py-2.5 text-sm font-semibold transition-all duration-300 ${
-                              selected
-                                ? `${accentMuted}`
-                                : "border-white/15 bg-white/[0.03] text-zinc-300 hover:border-white/25"
-                            }`}
-                            onClick={() => onPaymentPick(opt.id)}
-                          >
-                            {opt.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-              </GlassPanel>
-
-              <GlassPanel className="relative z-[25] overflow-visible p-4 transition-all duration-300">
-                <div className="flex gap-3">
-                  <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-black/30 text-zinc-300">
-                    <Landmark className="h-6 w-6" aria-hidden strokeWidth={1.75} />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <label
-                      htmlFor="lanc-conta-cartao"
-                      className="block text-xs font-semibold uppercase tracking-wide text-zinc-500"
-                    >
-                      Conta / Cartão
-                      <span className="ml-1 text-[10px] font-normal normal-case tracking-normal text-[#EF4444]">
-                        *
-                      </span>
-                    </label>
-                    <p className="mt-1 text-[11px] leading-snug text-zinc-600">
-                      {showCardPicker
-                        ? "Para crédito ou débito, selecione o cartão utilizado."
-                        : "PIX e dinheiro saem da conta corrente (ou ajuste se preferir)."}
-                    </p>
-                    <div className="relative mt-2">
-                      <select
-                        id="lanc-conta-cartao"
-                        value={contaState}
-                        onChange={(e) => {
-                          setContaState(e.target.value);
-                          setSubmitError(null);
-                        }}
-                        className={`${inputGlass} block w-full min-w-0 cursor-pointer appearance-none bg-[#181818]/90 py-3.5 pr-11 [&>option]:bg-[#171717] [&>option]:text-zinc-100 ${ringFocus}`}
-                      >
-                        {opcoesOrigemContaCartao.map((opt) => (
-                          <option key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </option>
-                        ))}
-                      </select>
-                      <ChevronDown
-                        className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500"
-                        aria-hidden
-                      />
-                    </div>
-                  </div>
-                </div>
-              </GlassPanel>
-            </>
-          ) : null}
-
-          {tipo === "despesa" && paymentMethod === "credito" ? (
-            <GlassPanel className="relative z-[25] overflow-visible p-4 transition-all duration-300">
-              <div className="flex gap-3">
-                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-black/30 text-zinc-300">
-                  <Receipt
-                    className="h-6 w-6"
-                    aria-hidden
-                    strokeWidth={1.75}
-                  />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <label
-                    htmlFor="lanc-parcelas"
-                    className="block text-xs font-semibold uppercase tracking-wide text-zinc-500"
-                  >
-                    Parcelas
-                  </label>
-                  <p className="mt-1 text-[11px] leading-snug text-zinc-600">
-                    Divide o valor em vários lançamentos mensais a partir da
-                    data acima.
-                  </p>
-                  <div className="relative mt-2">
-                    <select
-                      id="lanc-parcelas"
-                      value={parcelas}
-                      onChange={(e) => {
-                        setParcelas(
-                          Number.parseInt(e.target.value, 10) || 1,
-                        );
-                        setSubmitError(null);
-                      }}
-                      className={`${inputGlass} block w-full min-w-0 cursor-pointer appearance-none bg-[#181818]/90 py-3.5 pr-11 [&>option]:bg-[#171717] [&>option]:text-zinc-100 ${ringFocus}`}
-                    >
-                      {parcelasOpcoes.map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown
-                      className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500"
-                      aria-hidden
-                    />
-                  </div>
-                </div>
-              </div>
-            </GlassPanel>
-          ) : null}
-
-          <GlassPanel className="border-[#10B981]/35 bg-[#10B981]/08 p-4 shadow-[0_0_0_1px_rgba(16,185,129,0.12)] backdrop-blur-md transition-all duration-300">
-            <div className="flex gap-3">
-              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[#10B981]/30 bg-black/35 text-[#10B981]">
-                <Hash className="h-6 w-6" aria-hidden strokeWidth={2} />
-              </span>
-              <div className="min-w-0 flex-1">
-                <TagsExtrasField
-                  variant="lancar"
-                  inputId="lanc-tags-extras"
-                  label="Tags"
-                  description="Use Enter ou vírgula para adicionar. Aparecem no extrato e nos filtros."
-                  tagsSelecionadas={tagsSelecionadas}
-                  onTagsSelecionadasChange={setTagsSelecionadas}
-                  tagInput={tagInput}
-                  onTagInputChange={setTagInput}
-                  tagsHistorico={tagsHistorico}
-                  ringFocus={ringFocus}
-                />
-              </div>
-            </div>
-          </GlassPanel>
-
-          <GlassPanel className="p-4 transition-all duration-300">
-            <div className="flex gap-3">
-              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-black/30 text-zinc-300">
-                <PenLine className="h-6 w-6" aria-hidden strokeWidth={1.75} />
-              </span>
-              <div className="min-w-0 flex-1">
-                <label
-                  htmlFor="lanc-notes"
-                  className="block text-xs font-semibold uppercase tracking-wide text-zinc-500"
-                >
-                  Observações{" "}
-                  <span className="font-normal text-zinc-600">(opcional)</span>
-                </label>
-                <textarea
-                  id="lanc-notes"
-                  placeholder="Anotações adicionais sobre o lançamento"
-                  rows={3}
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  className={`${inputGlass} mt-2 min-h-[5.5rem] w-full resize-none leading-relaxed placeholder:text-zinc-600 ${ringFocus}`}
-                />
-              </div>
-            </div>
-          </GlassPanel>
-        </div>
-
-        <footer className="pointer-events-none fixed bottom-0 left-0 right-0 z-[60] bg-gradient-to-t from-[#121212] from-40% via-[#121212]/95 to-transparent px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-8">
-          <div className="pointer-events-auto mx-auto w-full max-w-[430px] space-y-3">
-            {submitSuccess ? (
+        {tipo === "despesa" ? (
+          <Card className="divide-y divide-borda">
+            <div className="px-3 py-2.5">
+              <p id="lanc-meio-lbl" className="flex items-center gap-2 text-xs font-medium text-texto-2">
+                <Wallet className="h-3.5 w-3.5 text-texto-3" aria-hidden />
+                Meio de pagamento
+              </p>
               <div
-                role="status"
-                className="rounded-2xl border border-emerald-500/40 bg-emerald-500/12 px-4 py-3 text-sm font-medium leading-snug text-emerald-100 shadow-lg shadow-black/20 backdrop-blur-md"
+                role="radiogroup"
+                aria-labelledby="lanc-meio-lbl"
+                className="mt-2 grid grid-cols-4 gap-1.5"
               >
-                {submitSuccess}
+                {PAYMENT_OPTIONS.map((opt) => {
+                  const selected = paymentMethod === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={selected}
+                      onClick={() => onPaymentPick(opt.id)}
+                      className={`h-9 touch-manipulation rounded-lg text-xs font-semibold transition active:scale-[0.97] ${
+                        selected
+                          ? "vidro text-marca"
+                          : "border border-borda-forte text-texto-2 hover:text-texto"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
               </div>
-            ) : null}
-            {submitError ? (
-              <div
-                role="alert"
-                className="rounded-2xl border border-red-500/40 bg-red-500/12 px-4 py-3 text-sm font-medium leading-snug text-[#FECACA] shadow-lg shadow-black/20 backdrop-blur-md"
-              >
-                {submitError}
-              </div>
-            ) : null}
-            {tipo === "despesa" && paymentMethod === "credito" ? (
-              <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3.5 shadow-inner shadow-black/15 backdrop-blur-md">
-                <div className="flex min-w-0 items-center gap-2.5">
-                  <Repeat
-                    className="h-4 w-4 shrink-0 text-zinc-500 opacity-80"
-                    strokeWidth={2}
-                    aria-hidden
-                  />
-                  <span className="text-[13px] font-medium leading-snug text-zinc-200">
-                    Lançamento fixo / recorrente
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={lancamentoRecorrente}
-                  disabled={isLoading}
-                  aria-label="Alternar lançamento fixo ou recorrente"
-                  onClick={() =>
-                    setLancamentoRecorrente((prev) => !prev)
-                  }
-                  className={`relative inline-flex h-8 w-[3.25rem] shrink-0 rounded-full border border-white/10 shadow-inner transition-colors duration-300 ${
-                    lancamentoRecorrente
-                      ? tipo === "despesa"
-                        ? "bg-[#EF4444]"
-                        : "bg-[#10B981]"
-                      : "bg-zinc-700"
-                  }`}
-                >
-                  <span
-                    aria-hidden
-                    className={`pointer-events-none absolute left-0.5 top-1/2 h-7 w-7 -translate-y-1/2 rounded-full bg-white shadow-md transition-transform duration-300 ease-out ${
-                      lancamentoRecorrente
-                        ? "translate-x-[1.375rem]"
-                        : "translate-x-0"
-                    }`}
-                  />
-                </button>
-              </div>
-            ) : null}
-            <button
-              type="button"
-              onClick={() => void handleConfirmarLancamento()}
-              disabled={isLoading}
-              className={`flex h-14 w-full items-center justify-center gap-2 rounded-3xl px-6 text-base font-bold text-white transition active:opacity-95 disabled:cursor-not-allowed disabled:opacity-50 ${submitBg}`}
+            </div>
+
+            <Linha
+              icone={<Landmark className="h-4 w-4" aria-hidden />}
+              rotulo={showCardPicker ? "Cartão" : "Conta"}
+              htmlFor="lanc-conta-cartao"
+              obrigatorio={showCardPicker}
+              dica={
+                semCartaoParaMeio ? (
+                  <>
+                    Nenhum cartão cadastrado.{" "}
+                    <Link href="/cartoes" className="font-medium text-marca">
+                      Cadastrar cartão
+                    </Link>
+                  </>
+                ) : showCardPicker && contaEfetiva === CONTA_CORRENTE_LABEL ? (
+                  "Selecione o cartão usado na compra."
+                ) : null
+              }
             >
-              {isLoading ? (
-                <Loader2
-                  className="h-5 w-5 shrink-0 animate-spin"
-                  strokeWidth={2}
-                  aria-hidden
-                />
-              ) : (
-                <CheckCircle2 className="h-5 w-5 shrink-0" aria-hidden />
-              )}
-              {isLoading ? "Processando…" : "Confirmar Lançamento"}
-            </button>
-          </div>
-        </footer>
+              <SelectLinha
+                id="lanc-conta-cartao"
+                value={contaEfetiva}
+                onChange={(v) => {
+                  setContaState(v);
+                  setSubmitError(null);
+                }}
+                opcoes={opcoesOrigemContaCartao}
+              />
+            </Linha>
+
+            {isCredito ? (
+              <>
+                <Linha
+                  icone={<Receipt className="h-4 w-4" aria-hidden />}
+                  rotulo="Parcelas"
+                  htmlFor="lanc-parcelas"
+                  dica={
+                    previaParcela != null
+                      ? `${parcelas}x de ${formatBRL(previaParcela)} · mensais a partir da data`
+                      : null
+                  }
+                >
+                  <SelectLinha
+                    id="lanc-parcelas"
+                    value={String(parcelas)}
+                    onChange={(v) => {
+                      setParcelas(Number.parseInt(v, 10) || 1);
+                      setSubmitError(null);
+                    }}
+                    opcoes={parcelasOpcoes.map((o) => ({
+                      value: String(o.value),
+                      label: o.value === 1 ? "À vista" : o.label,
+                    }))}
+                  />
+                </Linha>
+
+                <Linha
+                  icone={<Repeat className="h-4 w-4" aria-hidden />}
+                  rotulo="Recorrente"
+                  htmlFor="lanc-recorrente"
+                  dica={lancamentoRecorrente ? "Repete o valor todo mês por 12 meses." : null}
+                >
+                  <div className="flex flex-1 justify-end">
+                    <button
+                      id="lanc-recorrente"
+                      type="button"
+                      role="switch"
+                      aria-checked={lancamentoRecorrente}
+                      disabled={isLoading}
+                      aria-label="Lançamento fixo ou recorrente"
+                      onClick={() => setLancamentoRecorrente((prev) => !prev)}
+                      className={`relative inline-flex h-7 w-12 shrink-0 touch-manipulation rounded-full transition-colors duration-200 disabled:opacity-40 ${
+                        lancamentoRecorrente ? "bg-marca" : "bg-white/[0.12]"
+                      }`}
+                    >
+                      <span
+                        aria-hidden
+                        className={`pointer-events-none absolute left-0.5 top-0.5 h-6 w-6 rounded-full bg-white shadow-md transition-transform duration-200 ease-out ${
+                          lancamentoRecorrente ? "translate-x-5" : "translate-x-0"
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </Linha>
+              </>
+            ) : null}
+          </Card>
+        ) : null}
+
+        <Card className="p-3">
+          <TagsExtrasField
+            variant="lancar"
+            inputId="lanc-tags-extras"
+            label="Tags extras"
+            description="Enter ou vírgula para adicionar. Aparecem no extrato e nos filtros."
+            tagsSelecionadas={tagsSelecionadas}
+            onTagsSelecionadasChange={setTagsSelecionadas}
+            tagInput={tagInput}
+            onTagInputChange={setTagInput}
+            tagsHistorico={tagsHistorico}
+            ringFocus=""
+          />
+        </Card>
+
+        <Card className="p-3">
+          <label htmlFor="lanc-notes" className="flex items-center gap-2 text-xs font-medium text-texto-2">
+            <PenLine className="h-3.5 w-3.5 text-texto-3" aria-hidden />
+            Observações
+            <span className="font-normal text-texto-3">(opcional)</span>
+          </label>
+          <textarea
+            id="lanc-notes"
+            placeholder="Anotações sobre o lançamento"
+            rows={2}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            className={`${campoClasse} mt-1.5 h-auto min-h-[4rem] resize-none py-2 leading-relaxed`}
+          />
+        </Card>
       </div>
+
+      <footer className="pointer-events-none fixed inset-x-0 bottom-0 z-40 bg-gradient-to-t from-fundo via-fundo/85 to-transparent px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-8 lg:sticky lg:mt-auto lg:px-0 lg:pb-2 lg:pt-6">
+        <div className="pointer-events-auto mx-auto flex w-full max-w-[398px] flex-col gap-2 lg:max-w-none">
+          {submitSuccess ? (
+            <p
+              role="status"
+              className="flex items-center gap-2 rounded-xl bg-positivo/10 px-3 py-2.5 text-sm text-positivo"
+            >
+              <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden />
+              {submitSuccess}
+            </p>
+          ) : null}
+          {submitError ? (
+            <p
+              role="alert"
+              className="flex items-start gap-2 rounded-xl bg-negativo/10 px-3 py-2.5 text-sm text-negativo"
+            >
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+              {submitError}
+            </p>
+          ) : null}
+          <Botao
+            variante="primario"
+            onClick={() => void handleConfirmarLancamento()}
+            disabled={isLoading}
+            aria-busy={isLoading}
+            className="h-11 w-full text-[15px]"
+          >
+            {isLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            ) : (
+              <Check className="h-4 w-4" strokeWidth={2.5} aria-hidden />
+            )}
+            {isLoading
+              ? "Salvando…"
+              : tipo === "despesa"
+                ? "Salvar despesa"
+                : "Salvar receita"}
+          </Botao>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+/** Controle sem borda dentro de uma linha da lista agrupada. */
+const controleLinha =
+  "h-11 min-w-0 flex-1 bg-transparent text-right text-sm text-texto outline-none [color-scheme:dark] placeholder:text-texto-3";
+
+/** Linha da lista agrupada (estilo Ajustes do iOS): ícone, rótulo e controle à direita. */
+function Linha({
+  icone,
+  rotulo,
+  htmlFor,
+  obrigatorio = false,
+  dica,
+  children,
+}: {
+  icone: ReactNode;
+  rotulo: string;
+  htmlFor: string;
+  obrigatorio?: boolean;
+  dica?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div className="px-3 focus-within:bg-white/[0.02]">
+      <div className="flex min-h-11 items-center gap-3">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] text-texto-2 ring-1 ring-inset ring-white/[0.08]">
+          {icone}
+        </span>
+        <label htmlFor={htmlFor} className="shrink-0 text-sm text-texto">
+          {rotulo}
+          {obrigatorio ? (
+            <span className="ml-0.5 text-texto-3" aria-hidden>
+              *
+            </span>
+          ) : null}
+        </label>
+        {children}
+      </div>
+      {dica ? <p className="-mt-1 pb-2.5 pl-10 text-[11px] leading-snug text-texto-3">{dica}</p> : null}
+    </div>
+  );
+}
+
+/** Select nativo alinhado à direita, com seta. */
+function SelectLinha({
+  id,
+  value,
+  onChange,
+  opcoes,
+}: {
+  id: string;
+  value: string;
+  onChange: (v: string) => void;
+  opcoes: { value: string; label: string }[];
+}) {
+  return (
+    <div className="relative flex min-w-0 flex-1 items-center justify-end">
+      <select
+        id={id}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="h-11 min-w-0 max-w-full cursor-pointer touch-manipulation appearance-none truncate bg-transparent pr-6 text-right text-sm text-texto-2 outline-none [color-scheme:dark] [text-align-last:right] [&>option]:bg-superficie-2 [&>option]:text-texto"
+      >
+        {opcoes.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
+      <ChevronDown
+        className="pointer-events-none absolute right-0 top-1/2 h-4 w-4 -translate-y-1/2 text-texto-3"
+        aria-hidden
+      />
     </div>
   );
 }

@@ -1,40 +1,38 @@
 "use client";
 
-import { X } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import type { KeyboardEvent } from "react";
 
 type Variant = "lancar" | "extrato-edit";
 
 const VARIANT = {
   lancar: {
-    wrapperLabel: "text-sm font-semibold text-[#34D399]",
-    help: "mt-2 text-[11px] leading-snug text-zinc-400",
+    wrapperLabel: "block text-xs font-medium text-texto-2",
+    help: "mt-1.5 text-[11px] leading-snug text-texto-3",
     container:
-      "flex min-h-[3.25rem] flex-wrap items-center gap-2 rounded-2xl border border-[#10B981]/25 bg-black/35 px-3 py-2 backdrop-blur-sm",
+      "mt-1.5 flex min-h-9 flex-wrap items-center gap-1.5 rounded-lg border border-borda-forte bg-white/[0.05] px-2 py-1 transition-colors focus-within:border-marca/60",
     input:
-      "min-w-[min(100%,12rem)] flex-1 border-0 bg-transparent py-2 text-sm text-white outline-none placeholder:text-zinc-500",
-    pill: "inline-flex max-w-full items-center gap-1 rounded-full border border-[#10B981]/40 bg-[#10B981]/25 px-2.5 py-1 text-xs font-semibold text-emerald-100",
+      "h-7 min-w-[min(100%,9rem)] flex-1 border-0 bg-transparent px-1 text-sm text-texto outline-none placeholder:text-texto-3",
+    pill: "inline-flex h-6 max-w-full items-center gap-0.5 rounded-full bg-marca/15 pl-2.5 pr-0.5 text-xs font-medium text-marca ring-1 ring-inset ring-marca/25",
     pillBtn:
-      "ml-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-emerald-200/90 transition hover:bg-white/10 hover:text-white",
-    sugestTitulo:
-      "mt-2.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-500",
+      "relative flex h-5 w-5 shrink-0 touch-manipulation items-center justify-center rounded-full text-marca/80 transition after:absolute after:-inset-2 after:content-[''] hover:bg-white/10 hover:text-texto",
+    sugestTitulo: "mt-2.5 text-[11px] font-medium text-texto-3",
     sugBtn:
-      "rounded-full border border-white/15 bg-white/[0.04] px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:border-emerald-500/35 hover:bg-white/[0.07] hover:text-zinc-100",
+      "inline-flex h-8 touch-manipulation items-center gap-1 rounded-full border border-borda-forte px-3 text-xs font-medium text-texto-2 transition hover:border-marca/40 hover:text-texto active:scale-[0.97]",
   },
   "extrato-edit": {
-    wrapperLabel: "text-xs font-semibold uppercase tracking-wide text-zinc-500",
-    help: "mt-2 text-[11px] leading-snug text-zinc-500",
+    wrapperLabel: "block text-xs text-texto-2",
+    help: "mt-1 text-[11px] leading-snug text-texto-3",
     container:
-      "flex min-h-[3.25rem] flex-wrap items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 backdrop-blur-sm",
+      "mt-1 flex min-h-9 flex-wrap items-center gap-1.5 rounded-lg border border-borda-forte bg-white/[0.05] px-2 py-1 transition-colors focus-within:border-marca/60",
     input:
-      "min-w-[min(100%,12rem)] flex-1 border-0 bg-transparent py-2 text-sm font-medium text-white outline-none placeholder:text-zinc-600",
-    pill: "inline-flex max-w-full items-center gap-1 rounded-full border border-[#10B981]/40 bg-[#10B981]/18 px-2.5 py-1 text-xs font-semibold text-emerald-200",
+      "h-7 min-w-[min(100%,9rem)] flex-1 border-0 bg-transparent px-1 text-sm text-texto outline-none placeholder:text-texto-3",
+    pill: "inline-flex h-6 max-w-full items-center gap-0.5 rounded-full bg-marca/15 pl-2.5 pr-0.5 text-xs font-medium text-marca ring-1 ring-inset ring-marca/25",
     pillBtn:
-      "ml-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-emerald-200/90 transition hover:bg-white/10 hover:text-white",
-    sugestTitulo:
-      "mt-2.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-500",
+      "relative flex h-5 w-5 shrink-0 touch-manipulation items-center justify-center rounded-full text-marca/80 transition after:absolute after:-inset-2 after:content-[''] hover:bg-white/10 hover:text-texto",
+    sugestTitulo: "mt-2 text-[11px] font-medium text-texto-3",
     sugBtn:
-      "rounded-full border border-white/12 bg-white/[0.05] px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:border-emerald-500/35 hover:bg-white/[0.08] hover:text-zinc-100",
+      "inline-flex h-8 touch-manipulation items-center gap-1 rounded-full border border-borda-forte px-3 text-xs font-medium text-texto-2 transition hover:border-marca/40 hover:text-texto active:scale-[0.97]",
   },
 } as const;
 
@@ -132,14 +130,16 @@ export function TagsExtrasField({
       {sugestoes.length > 0 ? (
         <>
           <p className={v.sugestTitulo}>Tags sugeridas</p>
-          <div className="mt-1.5 flex flex-wrap gap-2">
+          <div className="mt-1.5 flex max-h-[6.75rem] flex-wrap gap-1.5 overflow-y-auto">
             {sugestoes.map((t) => (
               <button
                 key={t}
                 type="button"
                 className={v.sugBtn}
                 onClick={() => adicionarTag(t)}
+                aria-label={`Adicionar tag ${t}`}
               >
+                <Plus className="h-3 w-3" strokeWidth={2.5} aria-hidden />
                 {t}
               </button>
             ))}

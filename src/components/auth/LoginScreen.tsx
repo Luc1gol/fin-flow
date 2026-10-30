@@ -1,11 +1,38 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
-import { CircleUser, Loader2, Lock, Mail } from "lucide-react";
+import { Loader2, Lock, Mail } from "lucide-react";
 
 import { supabase } from "@/lib/supabase";
+import { Botao, campoClasse } from "@/components/ui/base";
+import { FundoAmbiente } from "@/components/layout/FundoAmbiente";
+
+const campo = `${campoClasse} h-10 rounded-xl`;
+const rotulo = "mb-1 block text-xs font-medium text-texto-2";
+
+function LogoGoogle() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0" aria-hidden>
+      <path
+        fill="#4285F4"
+        d="M23.52 12.27c0-.85-.08-1.67-.22-2.45H12v4.64h6.46a5.52 5.52 0 0 1-2.4 3.62v3h3.88c2.27-2.09 3.58-5.17 3.58-8.81Z"
+      />
+      <path
+        fill="#34A853"
+        d="M12 24c3.24 0 5.96-1.07 7.94-2.9l-3.88-3.01c-1.07.72-2.45 1.15-4.06 1.15-3.12 0-5.77-2.11-6.71-4.95H1.28v3.11A12 12 0 0 0 12 24Z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M5.29 14.29A7.2 7.2 0 0 1 4.91 12c0-.8.14-1.57.38-2.29V6.6H1.28A12 12 0 0 0 0 12c0 1.94.46 3.77 1.28 5.4l4.01-3.11Z"
+      />
+      <path
+        fill="#EA4335"
+        d="M12 4.77c1.76 0 3.34.61 4.59 1.8l3.44-3.44C17.95 1.19 15.24 0 12 0A12 12 0 0 0 1.28 6.6l4.01 3.11C6.23 6.88 8.88 4.77 12 4.77Z"
+      />
+    </svg>
+  );
+}
 
 export function LoginScreen() {
   const router = useRouter();
@@ -113,28 +140,35 @@ export function LoginScreen() {
   }
 
   return (
-    <div className="flex min-h-dvh flex-col bg-[#121212] px-6">
-      <div className="flex flex-1 flex-col justify-center">
-        <div className="mx-auto w-full max-w-sm">
-          <header className="mb-8 text-center">
-            <h1 className="font-semibold tracking-tight text-[clamp(1.75rem,5vw,2.125rem)] text-zinc-50">
-              Fin-Flow
+    <div className="relative flex min-h-dvh flex-col overflow-hidden bg-fundo px-4 pt-[max(1rem,env(safe-area-inset-top))]">
+      <FundoAmbiente />
+
+      <main className="relative flex flex-1 flex-col items-center justify-center py-8">
+        <div className="w-full max-w-sm">
+          <header className="mb-5 flex flex-col items-center text-center">
+            <div
+              className="vidro-marca flex h-12 w-12 items-center justify-center rounded-2xl text-xl font-bold tracking-tight"
+              aria-hidden
+            >
+              F
+            </div>
+            <h1 className="mt-3 text-xl font-semibold tracking-tight text-texto">
+              FinFlow
             </h1>
-            <p className="mt-2 text-sm text-zinc-500">
-              O controle financeiro da sua vida.
+            <p className="mt-0.5 text-sm text-texto-2">
+              {isLoginMode
+                ? "O controle financeiro da sua vida."
+                : "Crie sua conta para começar."}
             </p>
           </header>
 
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-6 shadow-[0_0_0_1px_rgba(255,255,255,0.04)_inset] backdrop-blur-md">
-            <form onSubmit={handleAuth} className="space-y-4">
+          <div className="vidro rounded-3xl p-5 sm:p-6">
+            <form onSubmit={handleAuth} className="space-y-3">
               {!isLoginMode ? (
                 <>
                   <div>
-                    <label
-                      htmlFor="cadastro-nome"
-                      className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-zinc-500"
-                    >
-                      NOME COMPLETO
+                    <label htmlFor="cadastro-nome" className={rotulo}>
+                      Nome completo
                     </label>
                     <input
                       id="cadastro-nome"
@@ -145,17 +179,14 @@ export function LoginScreen() {
                       value={nomeCompleto}
                       onChange={(e) => setNomeCompleto(e.target.value)}
                       disabled={isLoading}
-                      className="w-full rounded-xl border border-white/10 bg-[#121212] py-2.5 px-3 text-sm text-zinc-100 outline-none ring-emerald-500/0 transition-[box-shadow,border-color] placeholder:text-zinc-600 focus:border-emerald-500/40 focus:ring-2 focus:ring-emerald-500/20 disabled:opacity-60"
+                      className={`${campo} disabled:opacity-60`}
                       required
                     />
                   </div>
 
                   <div>
-                    <label
-                      htmlFor="cadastro-apelido"
-                      className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-zinc-500"
-                    >
-                      COMO DESEJA SER CHAMADO?
+                    <label htmlFor="cadastro-apelido" className={rotulo}>
+                      Como deseja ser chamado?
                     </label>
                     <input
                       id="cadastro-apelido"
@@ -166,22 +197,19 @@ export function LoginScreen() {
                       value={apelido}
                       onChange={(e) => setApelido(e.target.value)}
                       disabled={isLoading}
-                      className="w-full rounded-xl border border-white/10 bg-[#121212] py-2.5 px-3 text-sm text-zinc-100 outline-none ring-emerald-500/0 transition-[box-shadow,border-color] placeholder:text-zinc-600 focus:border-emerald-500/40 focus:ring-2 focus:ring-emerald-500/20 disabled:opacity-60"
+                      className={`${campo} disabled:opacity-60`}
                     />
                   </div>
                 </>
               ) : null}
 
               <div>
-                <label
-                  htmlFor="login-email"
-                  className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-zinc-500"
-                >
+                <label htmlFor="login-email" className={rotulo}>
                   E-mail
                 </label>
                 <div className="relative">
                   <Mail
-                    className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500"
+                    className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-texto-3"
                     aria-hidden
                   />
                   <input
@@ -189,25 +217,37 @@ export function LoginScreen() {
                     name="email"
                     type="email"
                     autoComplete="email"
+                    inputMode="email"
                     placeholder="seu@email.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     disabled={isLoading}
-                    className="w-full rounded-xl border border-white/10 bg-[#121212] py-2.5 pl-10 pr-3 text-sm text-zinc-100 outline-none ring-emerald-500/0 transition-[box-shadow,border-color] placeholder:text-zinc-600 focus:border-emerald-500/40 focus:ring-2 focus:ring-emerald-500/20 disabled:opacity-60"
+                    className={`${campo} pl-9 disabled:opacity-60`}
                   />
                 </div>
               </div>
 
               <div>
-                <label
-                  htmlFor="login-password"
-                  className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-zinc-500"
-                >
-                  Senha
-                </label>
+                <div className="mb-1 flex items-baseline justify-between">
+                  <label
+                    htmlFor="login-password"
+                    className="block text-xs font-medium text-texto-2"
+                  >
+                    Senha
+                  </label>
+                  {isLoginMode ? (
+                    <a
+                      href="#"
+                      className="text-xs font-medium text-marca transition-colors hover:brightness-125"
+                      onClick={(e) => e.preventDefault()}
+                    >
+                      Esqueci a senha
+                    </a>
+                  ) : null}
+                </div>
                 <div className="relative">
                   <Lock
-                    className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500"
+                    className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-texto-3"
                     aria-hidden
                   />
                   <input
@@ -221,25 +261,14 @@ export function LoginScreen() {
                     value={senha}
                     onChange={(e) => setSenha(e.target.value)}
                     disabled={isLoading}
-                    className="w-full rounded-xl border border-white/10 bg-[#121212] py-2.5 pl-10 pr-3 text-sm text-zinc-100 outline-none ring-emerald-500/0 transition-[box-shadow,border-color] placeholder:text-zinc-600 focus:border-emerald-500/40 focus:ring-2 focus:ring-emerald-500/20 disabled:opacity-60"
+                    className={`${campo} pl-9 disabled:opacity-60`}
                   />
                 </div>
-                {isLoginMode ? (
-                  <div className="mt-2 flex justify-end">
-                    <Link
-                      href="#"
-                      className="text-sm text-emerald-400 transition-colors hover:text-emerald-300"
-                      onClick={(e) => e.preventDefault()}
-                    >
-                      Esqueci a senha
-                    </Link>
-                  </div>
-                ) : null}
               </div>
 
               {successMessage ? (
                 <p
-                  className="rounded-xl border border-[#10B981]/35 bg-[#10B981]/10 px-3 py-2 text-center text-xs text-emerald-200/95"
+                  className="rounded-xl border border-positivo/30 bg-positivo/10 px-3 py-2 text-center text-xs text-positivo"
                   role="status"
                 >
                   {successMessage}
@@ -248,90 +277,65 @@ export function LoginScreen() {
 
               {error ? (
                 <p
-                  className="rounded-xl border border-red-500/30 bg-red-950/35 px-3 py-2 text-center text-xs text-red-300"
+                  className="rounded-xl border border-negativo/30 bg-negativo/10 px-3 py-2 text-center text-xs text-negativo"
                   role="alert"
                 >
                   {error}
                 </p>
               ) : null}
 
-              <button
+              <Botao
                 type="submit"
+                variante="primario"
                 disabled={isLoading}
-                className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-[#10B981] py-3 text-sm font-bold text-white shadow-[0_1px_0_rgba(255,255,255,0.12)_inset] transition-[filter] hover:brightness-110 active:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
+                className="mt-1 w-full"
               >
                 {isLoading ? (
-                  <Loader2
-                    className="h-4 w-4 shrink-0 animate-spin"
-                    strokeWidth={2}
-                    aria-hidden
-                  />
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
                 ) : null}
                 {isLoading
                   ? "Processando…"
                   : isLoginMode
                     ? "Entrar"
-                    : "Criar Conta"}
-              </button>
+                    : "Criar conta"}
+              </Botao>
             </form>
 
-            <div className="relative my-6">
-              <div className="absolute inset-0 flex items-center" aria-hidden>
-                <span className="w-full border-t border-white/10" />
-              </div>
-              <div className="relative flex justify-center text-xs">
-                <span className="bg-white/5 px-3 text-zinc-500 backdrop-blur-sm">
-                  ou
-                </span>
-              </div>
+            <div className="my-4 flex items-center gap-3" aria-hidden>
+              <span className="h-px flex-1 bg-borda-forte" />
+              <span className="text-xs text-texto-3">ou</span>
+              <span className="h-px flex-1 bg-borda-forte" />
             </div>
 
-            <button
-              type="button"
+            <Botao
+              variante="secundario"
               onClick={() => void handleGoogleLogin()}
               disabled={isLoading || isGoogleLoading}
-              className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/20 bg-transparent py-3 text-sm font-medium text-white transition-colors hover:border-white/30 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-50"
+              className="w-full"
             >
               {isGoogleLoading ? (
-                <Loader2
-                  className="h-5 w-5 shrink-0 animate-spin opacity-90"
-                  strokeWidth={2}
-                  aria-hidden
-                />
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
               ) : (
-                <CircleUser className="h-5 w-5 shrink-0 opacity-90" aria-hidden />
+                <LogoGoogle />
               )}
               {isGoogleLoading ? "Conectando…" : "Continuar com o Google"}
-            </button>
+            </Botao>
           </div>
-        </div>
-      </div>
 
-      <footer className="shrink-0 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-10 text-center text-sm text-zinc-500">
-        {isLoginMode ? (
-          <>
-            Ainda não tem uma conta?{" "}
+          <p className="mt-5 text-center text-sm text-texto-2">
+            {isLoginMode ? "Ainda não tem uma conta?" : "Já tem uma conta?"}{" "}
             <button
               type="button"
               onClick={toggleAuthMode}
-              className="font-semibold text-emerald-400 transition-colors hover:text-emerald-300"
+              className="inline-flex min-h-9 items-center font-semibold text-marca transition-colors hover:brightness-125"
             >
-              Criar conta
+              {isLoginMode ? "Criar conta" : "Fazer login"}
             </button>
-          </>
-        ) : (
-          <>
-            Já tem uma conta?{" "}
-            <button
-              type="button"
-              onClick={toggleAuthMode}
-              className="font-semibold text-emerald-400 transition-colors hover:text-emerald-300"
-            >
-              Fazer login
-            </button>
-          </>
-        )}
-      </footer>
+          </p>
+        </div>
+      </main>
+
+      <div className="h-[env(safe-area-inset-bottom)] shrink-0" aria-hidden />
     </div>
   );
 }
