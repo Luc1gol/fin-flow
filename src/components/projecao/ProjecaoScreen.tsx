@@ -15,6 +15,13 @@ const ICONE_EVENTO = {
   agendado: CalendarClock,
 } as const;
 
+const ROTULO_GRUPO = {
+  conta_fixa: "Contas fixas",
+  receita_fixa: "Receitas fixas",
+  fatura: "Faturas de cartão",
+  agendado: "Lançamentos futuros",
+} as const;
+
 const ROTULO_EVENTO = {
   conta_fixa: "Conta fixa",
   receita_fixa: "Receita fixa",
@@ -159,7 +166,7 @@ export function ProjecaoScreen() {
                 if (soma === 0) return null;
                 return (
                   <div key={tipo} className="flex items-center justify-between py-2.5">
-                    <span className="text-texto-2">{ROTULO_EVENTO[tipo]}s</span>
+                    <span className="text-texto-2">{ROTULO_GRUPO[tipo]}</span>
                     <Valor valor={soma} sinal colorir />
                   </div>
                 );
@@ -191,7 +198,7 @@ export function ProjecaoScreen() {
                       <span className="block truncate text-sm text-texto">{e.descricao}</span>
                       <span className="block text-xs text-texto-3">
                         {dataCurta(e.data)} · {ROTULO_EVENTO[e.tipo]}
-                        {e.estimado ? " · estimada" : ""}
+                        {e.doBanco ? " · valor do banco" : e.estimado ? " · estimada pelos lançamentos" : ""}
                       </span>
                     </span>
                     <Valor valor={e.valor} sinal colorir={e.valor > 0} className="text-sm" />

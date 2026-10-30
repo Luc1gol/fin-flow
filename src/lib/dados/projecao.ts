@@ -14,6 +14,8 @@ export type EventoPrevisto = {
   tipo: TipoEvento;
   /** Fatura calculada pelos lançamentos do cartão (pode faltar compra não lançada). */
   estimado?: boolean;
+  /** Valor da fatura informado pelo banco (Open Finance). */
+  doBanco?: boolean;
 };
 
 export type Projecao = {
@@ -87,7 +89,7 @@ export async function carregarProjecao(): Promise<Projecao> {
   const inicioBusca = iso(new Date(ano, mes0 - 3, 1, 12));
 
   const [contas, lanc, cartoes, fixas] = await Promise.all([
-    supabase.from("contas").select("tipo, saldo_banco, saldo_banco_em").eq("arquivada", false),
+    supabase.from("contas").select("tipo, banco, cartao_id, saldo_banco, saldo_banco_em").eq("arquivada", false),
     supabase
       .from("lancamentos")
       .select("descricao, tipo, valor, data, meio_pagamento, conta_cartao, recorrencia_id")
@@ -95,7 +97,7 @@ export async function carregarProjecao(): Promise<Projecao> {
       .in("tipo", ["despesa", "receita"])
       .gte("data", inicioBusca)
       .lte("data", fimMes),
-    supabase.from("cartoes").select("nome, dia_fechamento, dia_vencimento").eq("user_id", userId),
+    supabase.from("cartoes").select("id, nome, banco, dia_fechamento, dia_vencimento").eq("user_id", userId),
     Promise.all(meses.map((m) => carregarContasFixas(ano, m))),
   ]);
   if (lanc.error) throw lanc.error;
@@ -145,6 +147,15 @@ export async function carregarProjecao(): Promise<Projecao> {
     });
   }
 
+  // Cartões conectados pelo banco: o saldo da conta de crédito é o valor real da fatura.
+  const contasCredito = (contas.data ?? []).filter(
+    (c) => c.tipo === "cartao_credito" && c.saldo_banco != null && numero(c.saldo_banco) > 0,
+  );
+  const faturaDoBanco = (cartao: { id: unknown; banco: unknown }) =>
+    contasCredito.find((c) => c.cartao_id === cartao.id) ??
+    contasCredito.find((c) => !c.cartao_id && c.banco && c.banco === cartao.banco);
+  const usouSaldoBanco = new Set<unknown>();
+
   // 3. Faturas de cartão que ainda vencem dentro do horizonte.
   for (const c of (cartoes.data ?? []).flatMap((cartao) => meses.map((m) => ({ cartao, m })))) {
     const diaV = Number(c.cartao.dia_vencimento);
@@ -154,16 +165,22 @@ export async function carregarProjecao(): Promise<Projecao> {
     if (iso(vencimento) < hoje) continue; // já venceu: considera paga
     const { de, ate } = cicloDaFatura(vencimento, diaF);
     const rotulo = labelContaCartaoPersistido(String(c.cartao.nome ?? "")).toLowerCase();
-    const valor = lancamentos
-      .filter((l) => l.tipo === "despesa" && (l.conta ?? "").toLowerCase() === rotulo && l.data >= de && l.data < ate)
-      .reduce((a, l) => a + l.valor, 0);
+    // A próxima fatura usa o valor do banco (se conectado); as seguintes, os lançamentos.
+    const banco = faturaDoBanco(c.cartao);
+    const doBanco = banco && !usouSaldoBanco.has(c.cartao.id);
+    if (doBanco) usouSaldoBanco.add(c.cartao.id);
+    const valor = doBanco
+      ? numero(banco!.saldo_banco)
+      : lancamentos
+          .filter((l) => l.tipo === "despesa" && (l.conta ?? "").toLowerCase() === rotulo && l.data >= de && l.data < ate)
+          .reduce((a, l) => a + l.valor, 0);
     if (valor <= 0) continue;
     eventos.push({
       data: iso(vencimento),
       descricao: `Fatura ${String(c.cartao.nome ?? "do cartão")}`,
       valor: -valor,
       tipo: "fatura",
-      estimado: true,
+      ...(doBanco ? { doBanco: true } : { estimado: true }),
     });
   }
 
