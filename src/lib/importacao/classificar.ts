@@ -33,7 +33,15 @@ export type OpcoesClassificacao = {
   nomesTitular: string[];
   /** Regras salvas pelo usuário, indexadas por `padrao` (ver `chaveTransacao`). */
   regras?: ReadonlyMap<string, RegraUsuario>;
+  /** A transação é de uma conta de cartão de crédito (compras viram despesa no crédito). */
+  cartaoCredito?: boolean;
 };
+
+/** Sufixo de parcela que acrescentamos à descrição, ex.: "Loja X (2/10)". */
+const SUFIXO_PARCELA = /\s*\(\d{1,2}\/\d{1,2}\)$/;
+
+/** Textos genéricos que não identificam a contraparte — não geram regra. */
+const MEMOS_GENERICOS = /^(transf enviada pix|pix enviado|pagamento de fatura|fatura de cartao|pgto fat)/;
 
 export function normalizarTexto(s: string): string {
   return s
@@ -102,7 +110,9 @@ export function chaveTransacao(memo: string, valorComSinal: number): string | nu
     const compra = parseMemoCompraCartao(memo);
     if (compra) return `compra:${normalizarTexto(compra.estabelecimento)}`;
   }
-  return null;
+  const texto = normalizarTexto(memoLimpo.replace(SUFIXO_PARCELA, ""));
+  if (!texto || MEMOS_GENERICOS.test(texto)) return null;
+  return `desc:${texto}`;
 }
 
 export function classificarTransacao(
@@ -159,6 +169,18 @@ function classificarSemRegras(
       return { tipo: "transferencia", meio: "pix", descricao: "Transferência entre minhas contas", categoria: null, valor, precisaRevisao: false };
     }
     return { tipo: "despesa", meio: "pix", descricao: `Pix para ${capitalizar(nome)}`, categoria: sugerirCategoria(nome), valor, precisaRevisao: true };
+  }
+
+  if (opcoes.cartaoCredito) {
+    if (/^pagamento de fatura/.test(memoNorm)) {
+      return { tipo: "transferencia", meio: "credito", descricao: "Pagamento de fatura do cartão", categoria: null, valor, precisaRevisao: false };
+    }
+    if (!entrada) {
+      const categoria = sugerirCategoria(memoLimpo.replace(SUFIXO_PARCELA, ""));
+      return { tipo: "despesa", meio: "credito", descricao: capitalizar(memoLimpo), categoria, valor, precisaRevisao: categoria == null };
+    }
+    // Crédito na fatura que não é pagamento: estorno, cashback etc.
+    return { tipo: "receita", meio: "credito", descricao: capitalizar(memoLimpo), categoria: null, valor, precisaRevisao: true };
   }
 
   // O OFX do C6 não informa o destinatário de Pix enviados.

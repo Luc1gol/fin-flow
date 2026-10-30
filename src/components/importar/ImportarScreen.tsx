@@ -8,7 +8,9 @@ import {
   ArrowLeftRight,
   CheckCircle2,
   FileUp,
+  Landmark,
   Loader2,
+  RefreshCw,
   X,
 } from "lucide-react";
 import { GlassPanel } from "@/components/ui/glass-panel";
@@ -29,6 +31,8 @@ import {
   listarContas,
   listarPendentes,
   nomesDoTitular,
+  sincronizarOpenFinance,
+  statusOpenFinance,
   type Conta,
   type TransacaoImportada,
 } from "@/lib/importacao/repositorio";
@@ -48,6 +52,9 @@ const BANCO_POR_CODIGO: Record<string, string> = {
 };
 
 const DATALIST_CATEGORIAS_ID = "lista-categorias-importar";
+
+/** Ao abrir a tela, sincroniza sozinho se a última busca tiver mais que isso. */
+const HORAS_ENTRE_SINCRONIZACOES = 6;
 
 const inputGlass =
   "rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none transition-colors [color-scheme:dark] focus-visible:ring-2 focus-visible:ring-[#10B981]/50";
@@ -78,6 +85,17 @@ function formatarData(iso: string): string {
   return `${d}/${m}/${y}`;
 }
 
+function ultimaSincronizacaoTexto(contas: Conta[]): string {
+  const ultima = contas
+    .map((c) => (c.ultima_sincronizacao ? Date.parse(c.ultima_sincronizacao) : 0))
+    .reduce((a, b) => Math.max(a, b), 0);
+  if (!ultima) return "Ainda não sincronizado";
+  return `Última busca: ${new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(new Date(ultima))}`;
+}
+
 function edicaoInicial(t: TransacaoImportada): Edicao {
   return {
     tipo: t.sugestao_tipo,
@@ -104,6 +122,9 @@ export function ImportarScreen() {
   const [erro, setErro] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
   const [arquivoSemConta, setArquivoSemConta] = useState<ArquivoLido | null>(null);
+  const [openFinance, setOpenFinance] = useState(false);
+  const [sincronizando, setSincronizando] = useState(false);
+  const sincronizouAoAbrir = useRef(false);
   const inputArquivoRef = useRef<HTMLInputElement>(null);
 
   const recarregarPendentes = useCallback(async () => {
@@ -130,14 +151,16 @@ export function ImportarScreen() {
     let cancelado = false;
     (async () => {
       try {
-        const [listaContas, { data: auth }] = await Promise.all([
+        const [listaContas, { data: auth }, status] = await Promise.all([
           listarContas(),
           supabase.auth.getUser(),
+          statusOpenFinance(),
         ]);
         const tags = auth.user ? await fetchDistinctTagsForUser(auth.user.id) : [];
         if (cancelado) return;
         setContas(listaContas);
         setCategorias(mergeCategoriasPadraoComBanco(tags));
+        setOpenFinance(status.disponivel);
         await recarregarPendentes();
       } catch (e) {
         console.error(e);
@@ -150,6 +173,43 @@ export function ImportarScreen() {
       cancelado = true;
     };
   }, [recarregarPendentes]);
+
+  const sincronizar = useCallback(async () => {
+    setSincronizando(true);
+    setErro(null);
+    setAviso(null);
+    try {
+      const { contas: porConta } = await sincronizarOpenFinance();
+      const novas = porConta.reduce((acc, c) => acc + c.novas, 0);
+      setContas(await listarContas());
+      await recarregarPendentes();
+      setAviso(
+        novas === 0
+          ? "Tudo em dia: nenhuma transação nova no banco."
+          : `${novas} transações novas do banco: ${porConta
+              .filter((c) => c.novas > 0)
+              .map((c) => `${c.nome} (${c.novas})`)
+              .join(", ")}.`,
+      );
+    } catch (e) {
+      console.error(e);
+      setErro(e instanceof Error ? e.message : "Falha ao buscar dados do banco.");
+    } finally {
+      setSincronizando(false);
+    }
+  }, [recarregarPendentes]);
+
+  useEffect(() => {
+    if (!openFinance || sincronizouAoAbrir.current) return;
+    sincronizouAoAbrir.current = true;
+    const ultima = contas
+      .map((c) => (c.ultima_sincronizacao ? Date.parse(c.ultima_sincronizacao) : 0))
+      .reduce((a, b) => Math.max(a, b), 0);
+    if (Date.now() - ultima > HORAS_ENTRE_SINCRONIZACOES * 3_600_000) {
+      const id = window.setTimeout(() => void sincronizar(), 0);
+      return () => window.clearTimeout(id);
+    }
+  }, [openFinance, contas, sincronizar]);
 
   async function importarParaConta(conta: Conta, arquivo: ArquivoLido) {
     const [nomesTitular, regras] = await Promise.all([nomesDoTitular(), carregarRegras()]);
@@ -324,15 +384,39 @@ export function ImportarScreen() {
         <h1 className="text-base font-semibold text-white">Importar extrato</h1>
       </header>
 
+      {openFinance ? (
+        <GlassPanel className="p-4">
+          <div className="flex items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-black/30 text-[#10B981]">
+              <Landmark className="h-5 w-5" aria-hidden />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-white">Conectado ao banco</p>
+              <p className="text-xs text-zinc-500">
+                {ultimaSincronizacaoTexto(contas)}
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={sincronizando || processando}
+              onClick={() => void sincronizar()}
+              className="flex h-10 items-center gap-1.5 rounded-2xl bg-[#10B981] px-3 text-xs font-bold text-white transition hover:bg-[#0ea371] disabled:opacity-50"
+            >
+              <RefreshCw className={`h-4 w-4 ${sincronizando ? "animate-spin" : ""}`} aria-hidden />
+              {sincronizando ? "Buscando…" : "Buscar"}
+            </button>
+          </div>
+        </GlassPanel>
+      ) : null}
+
       <GlassPanel className="p-4">
         <p className="text-sm text-zinc-300">
-          Exporte o extrato do banco em <strong className="text-white">OFX</strong> e
-          envie aqui. Nada é lançado sem a sua confirmação.
+          {openFinance ? "Ou envie" : "Exporte o extrato do banco em"} um arquivo{" "}
+          <strong className="text-white">OFX</strong>. Nada é lançado sem a sua confirmação.
         </p>
         <input
           ref={inputArquivoRef}
           type="file"
-          accept=".ofx,application/x-ofx"
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0];

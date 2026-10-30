@@ -11,7 +11,7 @@ cartões de crédito, extrato e relatórios.
 
 ## Rodando localmente
 
-Crie `.env.local` com:
+Crie `.env.local` a partir de `.env.example`:
 
 ```
 NEXT_PUBLIC_SUPABASE_URL=...

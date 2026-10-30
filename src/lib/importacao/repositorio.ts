@@ -1,12 +1,15 @@
 import { supabase } from "@/lib/supabase";
-import { CONTA_CORRENTE_LABEL } from "@/lib/conta-cartao-lancamento";
+import {
+  CONTA_CORRENTE_LABEL,
+  labelContaCartaoPersistido,
+} from "@/lib/conta-cartao-lancamento";
 import {
   chaveTransacao,
-  classificarTransacao,
   type MeioMovimento,
   type RegraUsuario,
   type TipoMovimento,
 } from "@/lib/importacao/classificar";
+import { enfileirarTransacoes } from "@/lib/importacao/fila";
 import type { OfxExtrato } from "@/lib/importacao/ofx";
 
 export type Conta = {
@@ -17,6 +20,7 @@ export type Conta = {
   numero_conta: string | null;
   saldo_inicial: number;
   data_saldo_inicial: string;
+  ultima_sincronizacao: string | null;
 };
 
 export type TransacaoImportada = {
@@ -50,7 +54,7 @@ async function usuarioAtual() {
 export async function listarContas(): Promise<Conta[]> {
   const { data, error } = await supabase
     .from("contas")
-    .select("id, nome, banco, tipo, numero_conta, saldo_inicial, data_saldo_inicial")
+    .select("id, nome, banco, tipo, numero_conta, saldo_inicial, data_saldo_inicial, ultima_sincronizacao")
     .eq("arquivada", false)
     .order("created_at");
   if (error) throw error;
@@ -67,7 +71,7 @@ export async function criarConta(input: {
   const { data, error } = await supabase
     .from("contas")
     .insert(input)
-    .select("id, nome, banco, tipo, numero_conta, saldo_inicial, data_saldo_inicial")
+    .select("id, nome, banco, tipo, numero_conta, saldo_inicial, data_saldo_inicial, ultima_sincronizacao")
     .single();
   if (error) throw error;
   return { ...data, saldo_inicial: Number(data.saldo_inicial) } as Conta;
@@ -108,50 +112,49 @@ export async function importarExtrato(params: {
   nomesTitular: string[];
   regras: ReadonlyMap<string, RegraUsuario>;
 }): Promise<{ novas: number; duplicadas: number }> {
-  const { conta, extrato, arquivoNome, nomesTitular, regras } = params;
-  const datas = extrato.transacoes.map((t) => t.data).sort();
-
-  const { data: importacao, error: errImp } = await supabase
-    .from("importacoes")
-    .insert({
-      conta_id: conta.id,
-      arquivo_nome: arquivoNome,
-      periodo_inicio: datas[0] ?? null,
-      periodo_fim: datas[datas.length - 1] ?? null,
-    })
-    .select("id")
-    .single();
-  if (errImp) throw errImp;
-
-  const linhas = extrato.transacoes.map((t) => {
-    const s = classificarTransacao(t.memo, t.valor, { nomesTitular, regras });
-    return {
-      conta_id: conta.id,
-      importacao_id: importacao.id,
-      id_externo: t.fitid,
+  return enfileirarTransacoes(supabase, {
+    contaId: params.conta.id,
+    origem: params.arquivoNome,
+    transacoes: params.extrato.transacoes.map((t) => ({
+      idExterno: t.fitid,
       data: t.data,
       valor: t.valor,
       memo: t.memo,
-      sugestao_tipo: s.tipo,
-      sugestao_descricao: s.descricao,
-      sugestao_categoria: s.categoria,
-      sugestao_meio: s.meio,
-    };
+    })),
+    nomesTitular: params.nomesTitular,
+    regras: params.regras,
+    cartaoCredito: params.conta.tipo === "cartao_credito",
   });
+}
 
-  const { data: inseridas, error } = await supabase
-    .from("transacoes_importadas")
-    .upsert(linhas, { onConflict: "conta_id,id_externo", ignoreDuplicates: true })
-    .select("id");
-  if (error) throw error;
+/** Pede ao servidor para buscar as transações novas do banco (Pluggy). */
+export async function sincronizarOpenFinance(): Promise<ResultadoSincronizacao> {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) throw new Error("Sua sessão expirou. Entre novamente.");
+  const res = await fetch("/api/open-finance", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const corpo = await res.json();
+  if (!res.ok) throw new Error(corpo.erro ?? "Falha ao sincronizar com o banco.");
+  return corpo as ResultadoSincronizacao;
+}
 
-  const novas = inseridas?.length ?? 0;
-  await supabase
-    .from("importacoes")
-    .update({ total_transacoes: novas })
-    .eq("id", importacao.id);
+export type ResultadoSincronizacao = {
+  contas: { nome: string; novas: number; duplicadas: number }[];
+};
 
-  return { novas, duplicadas: linhas.length - novas };
+/** Diz se a sincronização automática está disponível para o usuário logado. */
+export async function statusOpenFinance(): Promise<{ disponivel: boolean }> {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) return { disponivel: false };
+  const res = await fetch("/api/open-finance", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return { disponivel: false };
+  return (await res.json()) as { disponivel: boolean };
 }
 
 export async function listarPendentes(): Promise<TransacaoImportada[]> {
@@ -216,6 +219,25 @@ export async function confirmarTransacoes(itens: TransacaoRevisada[]): Promise<v
   if (itens.length === 0) return;
   const user = await usuarioAtual();
 
+  // Compras de conta de cartão aparecem no app como "Cartão <nome>", igual ao lançamento manual.
+  const contaIds = [...new Set(itens.map((it) => it.transacao.conta_id))];
+  const { data: contasDb, error: errContas } = await supabase
+    .from("contas")
+    .select("id, nome, tipo, cartoes(nome)")
+    .in("id", contaIds);
+  if (errContas) throw errContas;
+  const rotuloPorConta = new Map<string, string>();
+  for (const c of contasDb ?? []) {
+    const cartao = c.cartoes as { nome?: string } | { nome?: string }[] | null;
+    const nomeCartao = Array.isArray(cartao) ? cartao[0]?.nome : cartao?.nome;
+    rotuloPorConta.set(
+      c.id,
+      c.tipo === "cartao_credito"
+        ? labelContaCartaoPersistido(nomeCartao ?? c.nome)
+        : CONTA_CORRENTE_LABEL,
+    );
+  }
+
   const lancamentos = itens.map((it) => ({
     id: crypto.randomUUID(),
     user_id: user.id,
@@ -229,7 +251,7 @@ export async function confirmarTransacoes(itens: TransacaoRevisada[]): Promise<v
     tipo: it.tipo,
     data: it.transacao.data,
     tag: it.categoria?.trim() || null,
-    conta_cartao: CONTA_CORRENTE_LABEL,
+    conta_cartao: rotuloPorConta.get(it.transacao.conta_id) ?? CONTA_CORRENTE_LABEL,
     meio_pagamento: it.transacao.sugestao_meio
       ? (MEIO_PARA_COLUNA[it.transacao.sugestao_meio] ?? null)
       : null,
