@@ -41,7 +41,10 @@ export type OpcoesClassificacao = {
 const SUFIXO_PARCELA = /\s*\(\d{1,2}\/\d{1,2}\)$/;
 
 /** Textos genéricos que não identificam a contraparte — não geram regra. */
-const MEMOS_GENERICOS = /^(transf enviada pix|pix enviado|pagamento de fatura|fatura de cartao|pgto fat)/;
+const MEMOS_GENERICOS = /^(transf enviada pix|pix enviado|pagamento de fatura|fatura de cartao|pgto fat|debito de cartao|compra (no |com cartao )?debito)/;
+
+/** Compra no débito sem nome do estabelecimento (como vem do Open Finance do C6). */
+const COMPRA_DEBITO_GENERICA = /^(debito de cartao|compra (no |com cartao )?debito)/;
 
 export function normalizarTexto(s: string): string {
   return s
@@ -186,6 +189,10 @@ function classificarSemRegras(
   // O OFX do C6 não informa o destinatário de Pix enviados.
   if (/^transf enviada pix/.test(memoNorm)) {
     return { tipo: "despesa", meio: "pix", descricao: "Pix enviado", categoria: null, valor, precisaRevisao: true };
+  }
+
+  if (COMPRA_DEBITO_GENERICA.test(memoNorm)) {
+    return { tipo: "despesa", meio: "debito", descricao: "Compra no débito", categoria: null, valor, precisaRevisao: true };
   }
 
   if (/^pagto \d{2}\.\d{4}$/.test(memoNorm)) {

@@ -32,6 +32,7 @@ export type PluggyTransacao = {
     receiver?: PluggyParte;
     paymentMethod?: string | null;
   } | null;
+  merchant?: { name?: string | null; businessName?: string | null } | null;
   creditCardMetadata?: {
     installmentNumber?: number | null;
     totalInstallments?: number | null;

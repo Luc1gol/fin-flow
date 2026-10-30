@@ -17,11 +17,18 @@ export const metadata: Metadata = {
   description:
     "Controle receitas, despesas, cartões e metas com uma experiência mobile premium.",
   applicationName: "FinFlow",
+  appleWebApp: {
+    capable: true,
+    title: "FinFlow",
+    statusBarStyle: "black-translucent",
+  },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  // Ocupa a tela toda no iPhone; as áreas seguras são tratadas com env(safe-area-inset-*).
+  viewportFit: "cover",
   themeColor: "#121212",
 };
 

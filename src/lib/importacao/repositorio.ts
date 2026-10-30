@@ -290,6 +290,18 @@ export async function confirmarTransacoes(itens: TransacaoRevisada[]): Promise<v
   }
 }
 
+/** Ignora de uma vez tudo o que está pendente com data anterior a `data` (yyyy-mm-dd). */
+export async function ignorarPendentesAntesDe(data: string): Promise<number> {
+  const { data: ignoradas, error } = await supabase
+    .from("transacoes_importadas")
+    .update({ status: "ignorada" })
+    .eq("status", "pendente")
+    .lt("data", data)
+    .select("id");
+  if (error) throw error;
+  return ignoradas?.length ?? 0;
+}
+
 export async function ignorarTransacoes(ids: string[]): Promise<void> {
   if (ids.length === 0) return;
   const { error } = await supabase

@@ -10,6 +10,9 @@ export type TransacaoNormalizada = {
   memo: string;
 };
 
+const GENERICOS =
+  /^(debito de cart[aã]o|compra (no |com cart[aã]o )?d[eé]bito|pix (enviado|recebido)|transfer[eê]ncia)/i;
+
 /** A Pluggy devolve datas em UTC; o dia que importa é o de Brasília. */
 function dataBrasilia(iso: string): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(
@@ -33,7 +36,12 @@ export function normalizarTransacao(
       ? -Math.abs(t.amount)
       : Math.abs(t.amount);
 
-  let memo = (t.description || t.descriptionRaw || "").trim();
+  // O C6 manda compras no débito como "DEBITO DE CARTAO"; se algum outro campo
+  // trouxer o nome da loja, ele é mais útil para a descrição e para as regras.
+  const candidatos = [t.description, t.descriptionRaw, t.merchant?.name, t.merchant?.businessName]
+    .map((s) => (s ?? "").trim())
+    .filter(Boolean);
+  let memo = candidatos.find((c) => !GENERICOS.test(c)) ?? candidatos[0] ?? "";
   const pix = t.paymentData?.paymentMethod?.toUpperCase() === "PIX";
   const pagador = t.paymentData?.payer?.name?.trim();
   const recebedor = t.paymentData?.receiver?.name?.trim();

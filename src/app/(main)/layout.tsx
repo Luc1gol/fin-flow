@@ -10,7 +10,7 @@ export default function MainLayout({
   return (
     <AuthGuard>
       <DashboardPeriodProvider>
-        <div className="relative flex h-screen w-full flex-col overflow-hidden bg-[#121212] text-zinc-50">
+        <div className="relative flex h-dvh w-full flex-col overflow-hidden bg-[#121212] text-zinc-50">
           <MainLayoutChrome>{children}</MainLayoutChrome>
         </div>
       </DashboardPeriodProvider>

@@ -26,6 +26,7 @@ import {
   carregarRegras,
   confirmarTransacoes,
   criarConta,
+  ignorarPendentesAntesDe,
   ignorarTransacoes,
   importarExtrato,
   listarContas,
@@ -117,6 +118,11 @@ export function ImportarScreen() {
   const [selecionadas, setSelecionadas] = useState<Set<string>>(new Set());
   const [categorias, setCategorias] = useState<string[]>([]);
   const [filtro, setFiltro] = useState<Filtro>("todas");
+  // Por padrão sugere começar no 1º dia do mês atual.
+  const [inicioUso, setInicioUso] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+  });
   const [carregando, setCarregando] = useState(true);
   const [processando, setProcessando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -369,6 +375,21 @@ export function ImportarScreen() {
     }
   }
 
+  async function handleIgnorarAntes() {
+    setProcessando(true);
+    setErro(null);
+    try {
+      const n = await ignorarPendentesAntesDe(inicioUso);
+      await recarregarPendentes();
+      setAviso(`${n} transações anteriores a ${formatarData(inicioUso)} foram ignoradas.`);
+    } catch (e) {
+      console.error(e);
+      setErro("Erro ao ignorar as transações antigas.");
+    } finally {
+      setProcessando(false);
+    }
+  }
+
   const contasPorId = useMemo(() => new Map(contas.map((c) => [c.id, c])), [contas]);
 
   return (
@@ -488,6 +509,27 @@ export function ImportarScreen() {
             </label>
           </div>
 
+          {pendentes.some((t) => t.data < inicioUso) ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-xs text-zinc-400">
+              <span>Começar a usar a partir de</span>
+              <input
+                type="date"
+                value={inicioUso}
+                onChange={(e) => setInicioUso(e.target.value)}
+                className={`${inputGlass} py-1.5`}
+                aria-label="Data de início"
+              />
+              <button
+                type="button"
+                disabled={processando || !inicioUso}
+                onClick={() => void handleIgnorarAntes()}
+                className="rounded-xl border border-white/10 px-3 py-1.5 font-semibold text-zinc-200 transition hover:bg-white/5 disabled:opacity-40"
+              >
+                Ignorar {pendentes.filter((t) => t.data < inicioUso).length} anteriores
+              </button>
+            </div>
+          ) : null}
+
           <div className="grid grid-cols-3 gap-1 rounded-2xl border border-white/10 bg-white/[0.04] p-1">
             {(
               [
@@ -528,7 +570,7 @@ export function ImportarScreen() {
             />
           ))}
 
-          <div className="fixed inset-x-0 bottom-[max(5.5rem,calc(env(safe-area-inset-bottom)+5.25rem))] z-40 px-4">
+          <div className="fixed inset-x-0 bottom-[calc(max(0.75rem,env(safe-area-inset-bottom))+4.75rem)] z-40 px-4">
             <div className="mx-auto flex max-w-[430px] gap-2 rounded-3xl border border-white/10 bg-[#1a1a1a]/95 p-2 shadow-xl backdrop-blur-xl">
               <button
                 type="button"

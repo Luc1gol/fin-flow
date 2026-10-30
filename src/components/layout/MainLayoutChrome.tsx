@@ -20,7 +20,7 @@ export function MainLayoutChrome({ children }: { children: React.ReactNode }) {
           perfilRota
             ? "overflow-hidden px-0"
             : "overflow-y-auto scroll-smooth px-4"
-        } ${hideBottomNav ? "pb-4" : "pb-[max(6rem,calc(env(safe-area-inset-bottom)+5.75rem))]"}`}
+        } ${hideBottomNav ? "pb-4" : "pb-[calc(max(0.75rem,env(safe-area-inset-bottom))+5.5rem)]"}`}
       >
         {children}
       </div>
