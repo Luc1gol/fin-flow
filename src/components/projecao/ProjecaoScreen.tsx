@@ -109,7 +109,7 @@ export function ProjecaoScreen() {
             <p className="mt-1 text-xs text-texto-2">
               Com seu gasto do dia a dia (~{formatBRL(p.gastoMedioDiario)}/dia):{" "}
               <span className={`font-semibold ${p.saldoComDiaADia < 0 ? "text-negativo" : "text-texto"}`}>
-                {formatBRL(p.saldoComDiaADia)}
+                <Valor valor={p.saldoComDiaADia} />
               </span>
             </p>
             {p.saldoComDiaADia < 0 ? (
