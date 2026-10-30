@@ -26,7 +26,7 @@ import {
   type GastoPorTag,
   type PeriodoRelatorioId,
   type PontoFluxo,
-} from "@/data/relatorios-mock";
+} from "@/types/relatorios";
 import { getBancoById, logoIconHorseUrl } from "@/data/bancos";
 import { formatBRL } from "@/lib/format-currency";
 import {

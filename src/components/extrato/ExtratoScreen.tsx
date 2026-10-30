@@ -32,7 +32,7 @@ import {
   Wallet,
   X,
 } from "lucide-react";
-import type { LancamentoExtrato } from "@/data/extrato-mock";
+import type { LancamentoExtrato } from "@/types/lancamento";
 import { getBancoById, logoIconHorseUrl } from "@/data/bancos";
 import { CATEGORIAS_PADRAO, mergeCategoriasPadraoComBanco } from "@/lib/categorias-padrao";
 import { fetchDistinctTagsForUser } from "@/lib/categorias-tags";

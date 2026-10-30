@@ -14,7 +14,7 @@ import {
 import { createPortal } from "react-dom";
 import { TagsExtrasField } from "@/components/form/TagsExtrasField";
 import { ChevronDown, Landmark, Loader2, X } from "lucide-react";
-import type { LancamentoExtrato } from "@/data/extrato-mock";
+import type { LancamentoExtrato } from "@/types/lancamento";
 import { mapLancamentoRowFromDb } from "@/lib/map-lancamento-extrato";
 import {
   MAX_AMOUNT_DIGITS_LANCAMENTO,

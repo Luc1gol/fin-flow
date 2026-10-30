@@ -1,4 +1,4 @@
-import type { LancamentoExtrato } from "@/data/extrato-mock";
+import type { LancamentoExtrato } from "@/types/lancamento";
 import {
   canonicalMeioPagamentoLabel,
 } from "@/lib/meio-pagamento-extrato";
