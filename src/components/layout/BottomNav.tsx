@@ -10,6 +10,7 @@ import {
   List,
   Plus,
   Settings,
+  Target,
   type LucideIcon,
 } from "lucide-react";
 
@@ -24,6 +25,7 @@ export const ITENS_NAV: ItemNav[] = [
 
 /** Só no menu lateral (desktop); no celular ficam no Início e no perfil. */
 export const ITENS_NAV_EXTRAS: ItemNav[] = [
+  { href: "/orcamentos", label: "Orçamentos", Icon: Target },
   { href: "/importar", label: "Revisar", Icon: Inbox },
   { href: "/perfil", label: "Perfil", Icon: Settings },
 ];

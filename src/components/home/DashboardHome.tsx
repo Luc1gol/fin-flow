@@ -16,6 +16,8 @@ import {
 import { useDashboardPeriod } from "@/components/layout/dashboard-period-context";
 import { Card, Chip, LinhaLista, Secao, Valor } from "@/components/ui/base";
 import { carregarResumoInicio, type MovimentoResumo, type ResumoInicio } from "@/lib/dados/inicio";
+import { carregarPainelOrcamento, statusDoItem, type PainelOrcamento } from "@/lib/dados/orcamentos";
+import { formatBRL } from "@/lib/format-currency";
 import { CORES_CATEGORIA } from "@/lib/icone-categoria";
 import { IconeCategoria } from "@/components/ui/IconeCategoria";
 
@@ -51,6 +53,72 @@ function fatiasPorCategoria(movs: MovimentoResumo[], tipo: "despesa" | "receita"
   }));
 }
 
+/** Cartão "Orçamento do mês": total planejado e as categorias mais apertadas. */
+function ResumoOrcamento({
+  painel,
+  oculto,
+  carregando,
+}: {
+  painel: PainelOrcamento | null;
+  oculto: boolean;
+  carregando: boolean;
+}) {
+  if (carregando || !painel) return null;
+  const comLimite = painel.itens.filter(
+    (i): i is typeof i & { limite: number } => i.limite != null,
+  );
+  if (comLimite.length === 0) {
+    return (
+      <Link href="/orcamentos" className="vidro-suave flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-texto-2">
+        <span className="flex-1">Defina quanto quer gastar por categoria</span>
+        <ChevronRight className="h-4 w-4" aria-hidden />
+      </Link>
+    );
+  }
+  const gasto = comLimite.reduce((a, i) => a + i.gasto, 0);
+  const limite = comLimite.reduce((a, i) => a + i.limite, 0);
+  const status = statusDoItem(gasto, limite);
+  const apertadas = comLimite
+    .filter((i) => statusDoItem(i.gasto, i.limite) !== "ok")
+    .sort((a, b) => b.gasto / b.limite - a.gasto / a.limite)
+    .slice(0, 2);
+  const cor = status === "estourado" ? "bg-negativo" : status === "atencao" ? "bg-alerta" : "bg-marca";
+  return (
+    <Secao titulo="Orçamento do mês" acao={{ label: "Ver todos", href: "/orcamentos" }}>
+      <Card className="p-3">
+        <div className="flex items-baseline justify-between text-xs">
+          <span className="text-texto-2">
+            {oculto ? "R$ ••••" : formatBRL(gasto)} de {oculto ? "R$ ••••" : formatBRL(limite)}
+          </span>
+          <span className="text-texto-3">{Math.round((gasto / limite) * 100)}%</span>
+        </div>
+        <div className="relative mt-2 h-1.5 rounded-full bg-white/[0.07]">
+          <div className={`h-full rounded-full ${cor}`} style={{ width: `${Math.min(100, (gasto / limite) * 100)}%` }} />
+          {painel.fracaoMes > 0 && painel.fracaoMes < 1 ? (
+            <div className="absolute -top-1 h-3.5 w-0.5 rounded-full bg-texto/60" style={{ left: `${painel.fracaoMes * 100}%` }} />
+          ) : null}
+        </div>
+        {apertadas.length > 0 ? (
+          <ul className="mt-2.5 flex flex-col gap-1">
+            {apertadas.map((i) => (
+              <li key={i.categoria} className="flex items-center gap-2 text-xs">
+                <AlertTriangle
+                  className={`h-3.5 w-3.5 ${i.gasto > i.limite ? "text-negativo" : "text-alerta"}`}
+                  aria-hidden
+                />
+                <span className="flex-1 text-texto-2">{i.categoria}</span>
+                <span className={i.gasto > i.limite ? "text-negativo" : "text-alerta"}>
+                  {Math.round((i.gasto / i.limite) * 100)}%
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </Card>
+    </Secao>
+  );
+}
+
 /** "▲ 12% vs 1–15 de set": compara sempre o mesmo pedaço do mês anterior. */
 function Variacao({ pct, rotulo, visivel }: { pct: number | null; rotulo: string; visivel: boolean }) {
   if (pct == null || !visivel) return null;
@@ -69,7 +137,11 @@ function dataCurta(iso: string) {
 export function DashboardHome() {
   const { period, setPeriod } = useDashboardPeriod();
   const chave = `${period.year}-${period.monthIndex}`;
-  const [dados, setDados] = useState<{ chave: string; resumo: ResumoInicio } | null>(null);
+  const [dados, setDados] = useState<{
+    chave: string;
+    resumo: ResumoInicio;
+    orcamento: PainelOrcamento | null;
+  } | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [oculto, setOculto] = useState(() => {
     try {
@@ -82,10 +154,17 @@ export function DashboardHome() {
 
   useEffect(() => {
     let cancelado = false;
-    carregarResumoInicio(period.year, period.monthIndex)
-      .then((resumo) => {
+    Promise.all([
+      carregarResumoInicio(period.year, period.monthIndex),
+      // O orçamento é um extra: se falhar, o Início continua funcionando.
+      carregarPainelOrcamento(period.year, period.monthIndex).catch((e) => {
+        console.error(e);
+        return null;
+      }),
+    ])
+      .then(([resumo, orcamento]) => {
         if (!cancelado) {
-          setDados({ chave, resumo });
+          setDados({ chave, resumo, orcamento });
           setErro(null);
         }
       })
@@ -261,6 +340,8 @@ export function DashboardHome() {
               <ChevronRight className="h-4 w-4" aria-hidden />
             </Link>
           ) : null}
+
+          <ResumoOrcamento painel={dados?.orcamento ?? null} oculto={oculto} carregando={carregando} />
 
           {/* Categorias */}
           <Secao titulo="Por categoria" acao={{ label: "Ver análise", href: "/relatorios" }}>
