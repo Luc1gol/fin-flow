@@ -18,6 +18,7 @@ import { Card, Chip, LinhaLista, Secao, Valor } from "@/components/ui/base";
 import { carregarResumoInicio, type MovimentoResumo, type ResumoInicio } from "@/lib/dados/inicio";
 import { carregarPainelOrcamento, statusDoItem, type PainelOrcamento } from "@/lib/dados/orcamentos";
 import { carregarContasFixas, type PainelContasFixas } from "@/lib/dados/recorrencias";
+import { carregarProjecao, type Projecao } from "@/lib/dados/projecao";
 import { formatBRL } from "@/lib/format-currency";
 import { CORES_CATEGORIA } from "@/lib/icone-categoria";
 import { IconeCategoria } from "@/components/ui/IconeCategoria";
@@ -188,6 +189,7 @@ export function DashboardHome() {
     resumo: ResumoInicio;
     orcamento: PainelOrcamento | null;
     contasFixas: PainelContasFixas | null;
+    projecao: Projecao | null;
   } | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [oculto, setOculto] = useState(() => {
@@ -212,10 +214,14 @@ export function DashboardHome() {
         console.error(e);
         return null;
       }),
+      carregarProjecao().catch((e) => {
+        console.error(e);
+        return null;
+      }),
     ])
-      .then(([resumo, orcamento, contasFixas]) => {
+      .then(([resumo, orcamento, contasFixas, projecao]) => {
         if (!cancelado) {
-          setDados({ chave, resumo, orcamento, contasFixas });
+          setDados({ chave, resumo, orcamento, contasFixas, projecao });
           setErro(null);
         }
       })
@@ -338,6 +344,21 @@ export function DashboardHome() {
                 Resultado do mês:{" "}
                 <Valor valor={resultado} sinal colorir oculto={oculto} />
               </p>
+            ) : null}
+
+            {mesAtual && dados?.projecao && !carregando ? (
+              <Link
+                href="/projecao"
+                className="mt-1.5 inline-flex items-center gap-1 text-xs text-texto-2 hover:text-texto"
+              >
+                Previsto para o fim do mês:{" "}
+                <Valor
+                  valor={dados.projecao.saldoComDiaADia}
+                  oculto={oculto}
+                  className={`font-semibold ${dados.projecao.saldoComDiaADia < 0 ? "text-negativo" : "text-texto"}`}
+                />
+                <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+              </Link>
             ) : null}
 
             <div className="mt-3 grid grid-cols-2 gap-2">
