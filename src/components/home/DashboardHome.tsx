@@ -351,7 +351,7 @@ export function DashboardHome() {
                 href="/projecao"
                 className="mt-1.5 inline-flex items-center gap-1 text-xs text-texto-2 hover:text-texto"
               >
-                Previsto para o fim do mês:{" "}
+                Previsto para {dados.projecao.fimMes.slice(8, 10)}/{dados.projecao.fimMes.slice(5, 7)}:{" "}
                 <Valor
                   valor={dados.projecao.saldoComDiaADia}
                   oculto={oculto}

@@ -73,8 +73,12 @@ export function ProjecaoScreen() {
           <ArrowLeft className="h-5 w-5" aria-hidden />
         </Link>
         <div>
-          <h1 className="text-lg font-semibold text-texto">Projeção do mês</h1>
-          {p ? <p className="text-xs text-texto-3">Até {dataCurta(p.fimMes)} · faltam {p.diasRestantes} dias</p> : null}
+          <h1 className="text-lg font-semibold text-texto">Projeção</h1>
+          {p ? (
+            <p className="text-xs text-texto-3">
+              Até {dataCurta(p.fimMes)} · {p.diasRestantes === 1 ? "falta 1 dia" : `faltam ${p.diasRestantes} dias`}
+            </p>
+          ) : null}
         </div>
       </header>
 
@@ -90,7 +94,7 @@ export function ProjecaoScreen() {
         <>
           <Card className="p-4">
             <p className="text-xs text-texto-3">
-              {semSaldo ? "Variação prevista até o fim do mês" : `Saldo previsto em ${dataCurta(p.fimMes)}`}
+              {semSaldo ? `Variação prevista até ${dataCurta(p.fimMes)}` : `Saldo previsto em ${dataCurta(p.fimMes)}`}
             </p>
             <p className={`mt-0.5 text-[28px] font-semibold leading-tight ${p.saldoPrevisto < 0 ? "text-negativo" : "text-texto"}`}>
               <Valor valor={p.saldoPrevisto} />
@@ -103,7 +107,7 @@ export function ProjecaoScreen() {
             </p>
             {p.saldoComDiaADia < 0 ? (
               <p className="mt-2 rounded-lg bg-negativo/10 px-2.5 py-1.5 text-xs text-negativo">
-                Nesse ritmo a conta fica negativa antes do fim do mês.
+                Nesse ritmo a conta fica negativa antes de {dataCurta(p.fimMes)}.
               </p>
             ) : null}
 
@@ -171,7 +175,7 @@ export function ProjecaoScreen() {
             </Card>
           </Secao>
 
-          <Secao titulo="O que ainda vem este mês">
+          <Secao titulo={`O que ainda vem até ${dataCurta(p.fimMes)}`}>
             {p.eventos.length === 0 ? (
               <Card className="p-4 text-center text-xs text-texto-3">
                 Nada previsto. Cadastre suas contas fixas para a projeção ficar mais precisa.

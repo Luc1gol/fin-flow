@@ -34,6 +34,8 @@ export type Projecao = {
 };
 
 const DIAS_MEDIA = 90;
+/** Perto do fim do mês, a projeção passa a ir até o fim do mês seguinte. */
+const MIN_DIAS_HORIZONTE = 7;
 
 function numero(v: unknown): number {
   const n = typeof v === "number" ? v : Number.parseFloat(String(v ?? "0"));
@@ -75,7 +77,11 @@ export async function carregarProjecao(): Promise<Projecao> {
   const ano = agora.getFullYear();
   const mes0 = agora.getMonth();
   const hoje = iso(agora);
-  const fimMes = iso(new Date(ano, mes0 + 1, 0, 12));
+  const diasNoMes = new Date(ano, mes0 + 1, 0).getDate();
+  const estende = diasNoMes - agora.getDate() < MIN_DIAS_HORIZONTE;
+  // Meses cobertos pela projeção (o atual e, perto do fim, o seguinte).
+  const meses = estende ? [mes0, mes0 + 1] : [mes0];
+  const fimMes = iso(new Date(ano, mes0 + meses.length, 0, 12));
   const inicioMedia = iso(new Date(ano, mes0, agora.getDate() - DIAS_MEDIA, 12));
   // Faturas que vencem este mês podem ter compras de até ~2 meses atrás.
   const inicioBusca = iso(new Date(ano, mes0 - 3, 1, 12));
@@ -90,7 +96,7 @@ export async function carregarProjecao(): Promise<Projecao> {
       .gte("data", inicioBusca)
       .lte("data", fimMes),
     supabase.from("cartoes").select("nome, dia_fechamento, dia_vencimento").eq("user_id", userId),
-    carregarContasFixas(ano, mes0),
+    Promise.all(meses.map((m) => carregarContasFixas(ano, m))),
   ]);
   if (lanc.error) throw lanc.error;
 
@@ -127,7 +133,7 @@ export async function carregarProjecao(): Promise<Projecao> {
   }
 
   // 2. Contas e receitas fixas ainda não pagas (as no crédito entram pela fatura).
-  for (const c of fixas.contas) {
+  for (const c of fixas.flatMap((f) => f.contas)) {
     if (c.situacao === "paga") continue;
     const r = c.recorrencia;
     if (r.tipo === "despesa" && normalizarTexto(r.meioPagamento ?? "") === "credito") continue;
@@ -139,22 +145,22 @@ export async function carregarProjecao(): Promise<Projecao> {
     });
   }
 
-  // 3. Faturas de cartão que ainda vencem este mês.
-  for (const c of cartoes.data ?? []) {
-    const diaV = Number(c.dia_vencimento);
-    const diaF = Number(c.dia_fechamento);
+  // 3. Faturas de cartão que ainda vencem dentro do horizonte.
+  for (const c of (cartoes.data ?? []).flatMap((cartao) => meses.map((m) => ({ cartao, m })))) {
+    const diaV = Number(c.cartao.dia_vencimento);
+    const diaF = Number(c.cartao.dia_fechamento);
     if (!Number.isFinite(diaV) || !Number.isFinite(diaF)) continue;
-    const vencimento = diaNoMes(ano, mes0, diaV);
+    const vencimento = diaNoMes(ano, c.m, diaV);
     if (iso(vencimento) < hoje) continue; // já venceu: considera paga
     const { de, ate } = cicloDaFatura(vencimento, diaF);
-    const rotulo = labelContaCartaoPersistido(String(c.nome ?? "")).toLowerCase();
+    const rotulo = labelContaCartaoPersistido(String(c.cartao.nome ?? "")).toLowerCase();
     const valor = lancamentos
       .filter((l) => l.tipo === "despesa" && (l.conta ?? "").toLowerCase() === rotulo && l.data >= de && l.data < ate)
       .reduce((a, l) => a + l.valor, 0);
     if (valor <= 0) continue;
     eventos.push({
       data: iso(vencimento),
-      descricao: `Fatura ${String(c.nome ?? "do cartão")}`,
+      descricao: `Fatura ${String(c.cartao.nome ?? "do cartão")}`,
       valor: -valor,
       tipo: "fatura",
       estimado: true,
@@ -169,7 +175,10 @@ export async function carregarProjecao(): Promise<Projecao> {
   );
   const gastoMedioDiario = variaveis.reduce((a, l) => a + l.valor, 0) / DIAS_MEDIA;
 
-  const diasRestantes = Math.max(0, new Date(ano, mes0 + 1, 0).getDate() - agora.getDate());
+  const diasRestantes = Math.max(
+    0,
+    Math.round((new Date(`${fimMes}T12:00:00`).getTime() - new Date(`${hoje}T12:00:00`).getTime()) / 86_400_000),
+  );
   const base = saldoHoje?.valor ?? 0;
   const saldoPrevisto = base + eventos.reduce((a, e) => a + e.valor, 0);
   const saldoComDiaADia = saldoPrevisto - gastoMedioDiario * diasRestantes;
