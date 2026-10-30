@@ -648,10 +648,15 @@ type LinhaExtratoProps = {
 };
 
 function LinhaExtrato({ item, onDelete, onSelect }: LinhaExtratoProps) {
-  const positivo = item.tipo === "receita";
-  const valorStr = positivo
-    ? `+ ${formatBRL(item.valor)}`
-    : `− ${formatBRL(item.valor)}`;
+  const transferencia = item.tipo === "transferencia";
+  const positivo = transferencia
+    ? !item.transferenciaSaida
+    : item.tipo === "receita";
+  const valorStr = transferencia
+    ? `⇄ ${formatBRL(item.valor)}`
+    : positivo
+      ? `+ ${formatBRL(item.valor)}`
+      : `− ${formatBRL(item.valor)}`;
   const ehRecorrente = Boolean(item.recorrencia_id?.trim());
 
   return (
@@ -712,7 +717,11 @@ function LinhaExtrato({ item, onDelete, onSelect }: LinhaExtratoProps) {
         </div>
         <p
           className={`shrink-0 self-center tabular-nums text-sm font-semibold ${
-            positivo ? "text-[#10B981]" : "text-[#EF4444]"
+            transferencia
+              ? "text-zinc-400"
+              : positivo
+                ? "text-[#10B981]"
+                : "text-[#EF4444]"
           }`}
         >
           {valorStr}
@@ -1330,7 +1339,7 @@ export function ExtratoScreen() {
     let saidas = 0;
     for (const l of lancamentosFiltrados) {
       if (l.tipo === "receita") entradas += l.valor;
-      else saidas += l.valor;
+      else if (l.tipo === "despesa") saidas += l.valor;
     }
     return { entradas, saidas };
   }, [lancamentosFiltrados]);

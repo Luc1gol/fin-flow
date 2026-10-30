@@ -1,10 +1,12 @@
 /** Lançamento normalizado para exibição no Extrato. */
 export type LancamentoExtrato = {
   id: string;
-  tipo: "receita" | "despesa";
+  tipo: "receita" | "despesa" | "transferencia";
   descricao: string;
   /** Valor em reais (positivo). */
   valor: number;
+  /** Só em transferências: true quando o dinheiro saiu da conta. */
+  transferenciaSaida?: boolean;
   categoriaNome: string;
   tag?: string;
   /** Presente em compras no cartão — exibe logo do banco no lugar do ícone de categoria. */

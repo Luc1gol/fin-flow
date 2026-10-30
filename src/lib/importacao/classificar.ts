@@ -20,9 +20,19 @@ export type SugestaoLancamento = {
   precisaRevisao: boolean;
 };
 
+/** Regra aprendida: quando a chave da transação bate, usa estes valores. */
+export type RegraUsuario = {
+  padrao: string;
+  tipo: TipoMovimento | null;
+  categoria: string | null;
+  descricao: string | null;
+};
+
 export type OpcoesClassificacao = {
   /** Nomes do próprio titular — Pix de/para esses nomes vira transferência entre contas. */
   nomesTitular: string[];
+  /** Regras salvas pelo usuário, indexadas por `padrao` (ver `chaveTransacao`). */
+  regras?: ReadonlyMap<string, RegraUsuario>;
 };
 
 export function normalizarTexto(s: string): string {
@@ -58,17 +68,18 @@ type Regra = { padrao: RegExp; categoria: string };
 
 /** Regras de categoria por palavra-chave; evoluem para regras salvas pelo usuário. */
 const REGRAS_CATEGORIA: Regra[] = [
-  { padrao: /supermercad|mercear|mercado|atacad|pao de acucar|oxxo|minuto pa|hortifruti/, categoria: "Mercado" },
-  { padrao: /pizzaria|restaurante|churrascaria|pastel|cafeteria|lanch|burger|sushi|japanese|barraca|ifood/, categoria: "Alimentação" },
-  { padrao: /posto|combust|estacionamento|park|uber|99app/, categoria: "Transporte" },
-  { padrao: /drogaria|farmacia|droga raia|pague menos/, categoria: "Saúde" },
+  { padrao: /supermercad|mercear|mercado|atacad|pao de acucar|oxxo|minuto pa|hortifruti|conveniencia/, categoria: "Mercado" },
+  { padrao: /pizzaria|restaurante|churrascaria|pastel|cafeteria|lanch|burger|sushi|japanese|sapporo|barraca|ifood|bar /, categoria: "Bares e restaurantes" },
+  { padrao: /estacionament|park/, categoria: "Estacionamento" },
+  { padrao: /posto|combust/, categoria: "Gasolina" },
+  { padrao: /uber|99app|99 tecnologia/, categoria: "Transporte" },
+  { padrao: /drogaria|farmacia|droga raia|pague menos/, categoria: "Farmácia" },
   { padrao: /barber|salao|cabeleir/, categoria: "Cuidados pessoais" },
-  { padrao: /petz|racao|pet shop|cobasi/, categoria: "Pet" },
+  { padrao: /petz|racao|pet shop|cobasi/, categoria: "PET" },
   { padrao: /ingresso|cinema|show|fest/, categoria: "Lazer" },
-  { padrao: /tributo|darf|imposto|iptu|ipva/, categoria: "Impostos" },
-  { padrao: /telefonica|vivo|claro|tim |internet/, categoria: "Contas da casa" },
-  { padrao: /papelaria|printer|armarinho/, categoria: "Compras" },
-  { padrao: /shopping|amazon|mercadolivre|magalu/, categoria: "Compras" },
+  { padrao: /tributo|darf|imposto|iptu|ipva|das /, categoria: "Impostos" },
+  { padrao: /telefonica|vivo|claro|tim |internet/, categoria: "Internet" },
+  { padrao: /papelaria|printer|armarinho|shopping|amazon|mercadolivre|magalu/, categoria: "Compras" },
 ];
 
 export function sugerirCategoria(texto: string): string | null {
@@ -76,7 +87,43 @@ export function sugerirCategoria(texto: string): string | null {
   return REGRAS_CATEGORIA.find((r) => r.padrao.test(t))?.categoria ?? null;
 }
 
+/**
+ * Identifica "quem" é a contraparte da transação, para aprender regras:
+ * "pix-recebido:fulano", "pix-enviado:fulano" ou "compra:estabelecimento".
+ * Retorna null quando o extrato não traz essa informação (ex.: "TRANSF ENVIADA PIX").
+ */
+export function chaveTransacao(memo: string, valorComSinal: number): string | null {
+  const memoLimpo = memo.replace(/\s+/g, " ").trim();
+  const recebido = /^pix recebido de (.+)$/i.exec(memoLimpo);
+  if (recebido) return `pix-recebido:${normalizarTexto(recebido[1]!)}`;
+  const enviado = /^pix enviado para (.+)$/i.exec(memoLimpo);
+  if (enviado) return `pix-enviado:${normalizarTexto(enviado[1]!)}`;
+  if (valorComSinal < 0) {
+    const compra = parseMemoCompraCartao(memo);
+    if (compra) return `compra:${normalizarTexto(compra.estabelecimento)}`;
+  }
+  return null;
+}
+
 export function classificarTransacao(
+  memo: string,
+  valorComSinal: number,
+  opcoes: OpcoesClassificacao,
+): SugestaoLancamento {
+  const base = classificarSemRegras(memo, valorComSinal, opcoes);
+  const chave = chaveTransacao(memo, valorComSinal);
+  const regra = chave ? opcoes.regras?.get(chave) : undefined;
+  if (!regra) return base;
+  return {
+    ...base,
+    tipo: regra.tipo ?? base.tipo,
+    categoria: regra.categoria ?? base.categoria,
+    descricao: regra.descricao ?? base.descricao,
+    precisaRevisao: false,
+  };
+}
+
+function classificarSemRegras(
   memo: string,
   valorComSinal: number,
   opcoes: OpcoesClassificacao,

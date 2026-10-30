@@ -16,6 +16,7 @@ import {
   Calendar,
   CheckCircle2,
   ChevronDown,
+  FileUp,
   Loader2,
   Hash,
   Landmark,
@@ -550,6 +551,13 @@ export function LancarScreen() {
         <h1 className="text-base font-semibold text-white">
           Novo Lançamento
         </h1>
+        <Link
+          href="/importar"
+          className="absolute right-0 top-1/2 flex h-10 -translate-y-1/2 items-center gap-1.5 rounded-2xl border border-white/10 bg-white/[0.05] px-3 text-xs font-semibold text-zinc-300 transition-colors hover:bg-white/[0.08] hover:text-white"
+        >
+          <FileUp className="h-4 w-4" aria-hidden />
+          Importar
+        </Link>
       </header>
 
       <div className="mb-6 shrink-0 rounded-2xl border border-white/10 bg-white/[0.04] p-1 backdrop-blur-sm">
