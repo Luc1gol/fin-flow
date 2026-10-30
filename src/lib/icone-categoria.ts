@@ -67,4 +67,4 @@ export function iconeDaCategoria(categoria: string | null | undefined): LucideIc
 }
 
 /** Paleta para categorias em gráficos (ordem fixa, legível no fundo escuro). */
-export const CORES_CATEGORIA = ["#10b981", "#60a5fa", "#f97316", "#a78bfa", "#f472b6", "#71717a"] as const;
+export const CORES_CATEGORIA = ["#4f8cff", "#a78bfa", "#f97316", "#f472b6", "#facc15", "#71717a"] as const;

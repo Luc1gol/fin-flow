@@ -514,7 +514,7 @@ export function ImportarScreen() {
         <p className="rounded-xl bg-negativo/10 px-3 py-2.5 text-sm text-negativo">{erro}</p>
       ) : null}
       {aviso ? (
-        <p className="rounded-xl bg-marca/10 px-3 py-2.5 text-sm text-positivo">{aviso}</p>
+        <p className="rounded-xl bg-positivo/10 px-3 py-2.5 text-sm text-positivo">{aviso}</p>
       ) : null}
 
       {carregando ? (
