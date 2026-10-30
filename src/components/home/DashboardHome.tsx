@@ -51,6 +51,16 @@ function fatiasPorCategoria(movs: MovimentoResumo[], tipo: "despesa" | "receita"
   }));
 }
 
+/** "▲ 12% vs 1–15 de set": compara sempre o mesmo pedaço do mês anterior. */
+function Variacao({ pct, rotulo, visivel }: { pct: number | null; rotulo: string; visivel: boolean }) {
+  if (pct == null || !visivel) return null;
+  return (
+    <p className="mt-0.5 text-[11px] text-texto-3">
+      {pct === 0 ? "igual" : `${pct > 0 ? "▲" : "▼"} ${Math.abs(pct)}%`} {rotulo}
+    </p>
+  );
+}
+
 function dataCurta(iso: string) {
   const [, m, d] = iso.split("-");
   return `${d}/${m}`;
@@ -112,10 +122,17 @@ export function DashboardHome() {
     [resumo, tipoGrafico],
   );
   const resultado = (resumo?.entradas ?? 0) - (resumo?.saidas ?? 0);
-  const variacaoSaidas =
-    resumo && resumo.saidasMesAnterior > 0
-      ? Math.round(((resumo.saidas - resumo.saidasMesAnterior) / resumo.saidasMesAnterior) * 100)
-      : null;
+  const comp = resumo?.comparacao;
+  const variacao = (par: { atual: number; anterior: number } | undefined) =>
+    par && par.anterior > 0 ? Math.round(((par.atual - par.anterior) / par.anterior) * 100) : null;
+  const variacaoEntradas = variacao(comp?.entradas);
+  const variacaoSaidas = variacao(comp?.saidas);
+  // Ex.: "vs 1–15 de set" no mês atual; "vs setembro" em meses passados.
+  const rotuloComparacao = comp
+    ? comp.ateDia != null
+      ? `vs 1–${comp.ateDia} de ${MESES[comp.mesAnterior0]!.slice(0, 3).toLowerCase()}`
+      : `vs ${MESES[comp.mesAnterior0]!.toLowerCase()}`
+    : "";
 
   return (
     <div className="flex flex-col gap-5 pb-6">
@@ -201,6 +218,7 @@ export function DashboardHome() {
                 <p className="mt-0.5 text-[15px] font-semibold text-positivo">
                   {carregando ? "…" : <Valor valor={resumo?.entradas ?? 0} oculto={oculto} />}
                 </p>
+                <Variacao pct={variacaoEntradas} rotulo={rotuloComparacao} visivel={!oculto && !carregando} />
               </Card>
               <Card className="px-3 py-2.5">
                 <p className="flex items-center gap-1 text-xs text-texto-3">
@@ -209,13 +227,7 @@ export function DashboardHome() {
                 <p className="mt-0.5 text-[15px] font-semibold text-negativo">
                   {carregando ? "…" : <Valor valor={resumo?.saidas ?? 0} oculto={oculto} />}
                 </p>
-                {variacaoSaidas != null && !oculto && !carregando ? (
-                  <p className="mt-0.5 text-[11px] text-texto-3">
-                    {variacaoSaidas === 0
-                      ? "igual ao mês anterior"
-                      : `${variacaoSaidas > 0 ? "▲" : "▼"} ${Math.abs(variacaoSaidas)}% vs mês anterior`}
-                  </p>
-                ) : null}
+                <Variacao pct={variacaoSaidas} rotulo={rotuloComparacao} visivel={!oculto && !carregando} />
               </Card>
             </div>
           </section>

@@ -50,7 +50,7 @@ export function tipoFluxo(tipo: string): "receita" | "despesa" | null {
 
 export type Intervalo = { desde: string; ate: string };
 
-/** Janela do período atual (mesma regra da versão anterior da tela). */
+/** Janela do período atual: sempre do início do período até hoje. */
 export function intervaloDoPeriodo(periodo: PeriodoRelatorioId, ref: Date): Intervalo {
   const ate = isoDaData(ref);
   switch (periodo) {
@@ -62,16 +62,23 @@ export function intervaloDoPeriodo(periodo: PeriodoRelatorioId, ref: Date): Inte
       return { desde: isoDaData(new Date(ref.getFullYear(), ref.getMonth(), 1, 12)), ate };
     case "3m":
       return { desde: isoDaData(new Date(ref.getFullYear(), ref.getMonth() - 2, 1, 12)), ate };
-    case "ano": {
-      const y = ref.getFullYear();
-      return { desde: `${y}-01-01`, ate: `${y}-12-31` };
-    }
+    case "ano":
+      return { desde: `${ref.getFullYear()}-01-01`, ate };
     default:
       return { desde: ate, ate };
   }
 }
 
-/** Janela equivalente imediatamente anterior, para comparação. */
+/** Mesmo dia num mês deslocado, sem passar do último dia (31/03 → 28/02). */
+function mesmoDiaNoMes(ano: number, mes0: number, dia: number): Date {
+  const ultimo = new Date(ano, mes0 + 1, 0, 12).getDate();
+  return new Date(ano, mes0, Math.min(dia, ultimo), 12);
+}
+
+/**
+ * Janela anterior equivalente, para comparação justa: mesmo tamanho e mesmo
+ * "pedaço" do período (ex.: hoje 15/10 no Mês → 01/09 a 15/09).
+ */
 export function intervaloAnterior(periodo: PeriodoRelatorioId, ref: Date): Intervalo {
   const y = ref.getFullYear();
   const m = ref.getMonth();
@@ -81,20 +88,23 @@ export function intervaloAnterior(periodo: PeriodoRelatorioId, ref: Date): Inter
         desde: isoDaData(new Date(y, m, ref.getDate() - 13, 12)),
         ate: isoDaData(new Date(y, m, ref.getDate() - 7, 12)),
       };
-    case "mes": {
-      const ultimoDiaAnterior = new Date(y, m, 0, 12).getDate();
+    case "mes":
       return {
         desde: isoDaData(new Date(y, m - 1, 1, 12)),
-        ate: isoDaData(new Date(y, m - 1, Math.min(ref.getDate(), ultimoDiaAnterior), 12)),
+        ate: isoDaData(mesmoDiaNoMes(y, m - 1, ref.getDate())),
       };
-    }
     case "3m":
+      // Ex.: hoje 30/10 → atual 01/08–30/10, anterior 01/05–30/07.
       return {
         desde: isoDaData(new Date(y, m - 5, 1, 12)),
-        ate: isoDaData(new Date(y, m - 2, 0, 12)),
+        ate: isoDaData(mesmoDiaNoMes(y, m - 3, ref.getDate())),
       };
     case "ano":
-      return { desde: `${y - 1}-01-01`, ate: `${y - 1}-12-31` };
+      // Ex.: hoje 30/10/2026 → anterior 01/01/2025–30/10/2025.
+      return {
+        desde: `${y - 1}-01-01`,
+        ate: isoDaData(mesmoDiaNoMes(y - 1, m, ref.getDate())),
+      };
     default:
       return intervaloDoPeriodo(periodo, ref);
   }
@@ -103,8 +113,8 @@ export function intervaloAnterior(periodo: PeriodoRelatorioId, ref: Date): Inter
 export const ROTULO_COMPARACAO: Record<PeriodoRelatorioId, string> = {
   "7d": "vs 7 dias anteriores",
   mes: "vs mesmo período do mês passado",
-  "3m": "vs 3 meses anteriores",
-  ano: "vs ano passado",
+  "3m": "vs mesmo período dos 3 meses anteriores",
+  ano: "vs mesmo período do ano passado",
 };
 
 export function dentroDo(intervalo: Intervalo, iso: string): boolean {

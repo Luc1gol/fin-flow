@@ -16,7 +16,17 @@ export type ResumoInicio = {
   saldoContas: { valor: number; atualizadoEm: string | null } | null;
   entradas: number;
   saidas: number;
-  saidasMesAnterior: number;
+  /**
+   * Comparação justa com o mês anterior: no mês atual, compara do dia 1 até hoje
+   * com o dia 1 até o mesmo dia do mês anterior. Em meses passados, mês inteiro x mês inteiro.
+   */
+  comparacao: {
+    entradas: { atual: number; anterior: number };
+    saidas: { atual: number; anterior: number };
+    /** Dia limite usado (ex.: 15 → "1 a 15"); null quando compara meses inteiros. */
+    ateDia: number | null;
+    mesAnterior0: number;
+  };
   movimentos: MovimentoResumo[];
   pendentesRevisao: number;
   cartaoVencendo: { nome: string; dias: number } | null;
@@ -62,9 +72,25 @@ export async function carregarResumoInicio(ano: number, mes0: number): Promise<R
 
   const prefixoMes = iso(ano, mes0, 1).slice(0, 7);
   const prefixoAnterior = iso(anterior.ano, anterior.mes0, 1).slice(0, 7);
+  const hojeData = new Date();
+  const ehMesAtual = hojeData.getFullYear() === ano && hojeData.getMonth() === mes0;
+  const ateDia = ehMesAtual ? hojeData.getDate() : null;
+  // Limites (inclusivos) das duas janelas comparadas.
+  const limiteAtual = ateDia != null ? iso(ano, mes0, ateDia) : ate;
+  const ultimoDiaAnterior = new Date(anterior.ano, anterior.mes0 + 1, 0).getDate();
+  const limiteAnterior = iso(
+    anterior.ano,
+    anterior.mes0,
+    ateDia != null ? Math.min(ateDia, ultimoDiaAnterior) : ultimoDiaAnterior,
+  );
   let entradas = 0;
   let saidas = 0;
-  let saidasMesAnterior = 0;
+  const comparacao: ResumoInicio["comparacao"] = {
+    entradas: { atual: 0, anterior: 0 },
+    saidas: { atual: 0, anterior: 0 },
+    ateDia,
+    mesAnterior0: anterior.mes0,
+  };
   const movimentos: MovimentoResumo[] = [];
   for (const r of lanc.data ?? []) {
     const tipo = String(r.tipo) as MovimentoResumo["tipo"];
@@ -73,6 +99,10 @@ export async function carregarResumoInicio(ano: number, mes0: number): Promise<R
     if (data.startsWith(prefixoMes)) {
       if (tipo === "receita") entradas += valor;
       else if (tipo === "despesa") saidas += valor;
+      if (data <= limiteAtual) {
+        if (tipo === "receita") comparacao.entradas.atual += valor;
+        else if (tipo === "despesa") comparacao.saidas.atual += valor;
+      }
       movimentos.push({
         id: String(r.id),
         tipo,
@@ -83,8 +113,9 @@ export async function carregarResumoInicio(ano: number, mes0: number): Promise<R
         categoria: r.tag ? String(r.tag) : null,
         meio: r.meio_pagamento ? String(r.meio_pagamento) : null,
       });
-    } else if (data.startsWith(prefixoAnterior) && tipo === "despesa") {
-      saidasMesAnterior += valor;
+    } else if (data.startsWith(prefixoAnterior) && data <= limiteAnterior) {
+      if (tipo === "receita") comparacao.entradas.anterior += valor;
+      else if (tipo === "despesa") comparacao.saidas.anterior += valor;
     }
   }
 
@@ -130,7 +161,7 @@ export async function carregarResumoInicio(ano: number, mes0: number): Promise<R
     saldoContas,
     entradas,
     saidas,
-    saidasMesAnterior,
+    comparacao,
     movimentos,
     pendentesRevisao: pend.count ?? 0,
     cartaoVencendo,
