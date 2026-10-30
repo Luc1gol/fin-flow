@@ -60,6 +60,8 @@ type LancamentoBase = {
 
 /** Tolerância de valor para reconhecer a mesma conta (ex.: luz varia todo mês). */
 const TOLERANCIA_VALOR = 0.3;
+/** Meses completos anteriores analisados para sugerir contas fixas. */
+const MESES_HISTORICO = 6;
 const SUFIXO_PARCELA = /\s*\(\d{1,2}\/\d{1,2}\)\s*$/;
 
 function numero(v: unknown): number {
@@ -142,7 +144,7 @@ export async function listarRecorrenciasAtivas(): Promise<Recorrencia[]> {
 /** Situação das contas fixas no mês + sugestões tiradas do histórico. */
 export async function carregarContasFixas(ano: number, mes0: number): Promise<PainelContasFixas> {
   const userId = await usuarioId();
-  const desde = iso(ano, mes0 - 4, 1);
+  const desde = iso(ano, mes0 - MESES_HISTORICO, 1);
   const fimMes = iso(ano, mes0 + 1, 0);
   const inicioMes = iso(ano, mes0, 1);
 
@@ -211,7 +213,7 @@ export async function carregarContasFixas(ano: number, mes0: number): Promise<Pa
 }
 
 /**
- * Procura o que se repete: mesma descrição em pelo menos 3 dos 4 meses anteriores,
+ * Procura o que se repete: mesma descrição em pelo menos 3 dos 6 meses anteriores,
  * com valor estável. Parcelas ("(2/10)") e o que já é recorrência ficam de fora.
  */
 function detectarSugestoes(historico: LancamentoBase[], existentes: Recorrencia[]): SugestaoRecorrencia[] {

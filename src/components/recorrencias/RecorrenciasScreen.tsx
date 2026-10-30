@@ -211,7 +211,7 @@ export function RecorrenciasScreen() {
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm text-texto">{s.descricao}</span>
                       <span className="block truncate text-xs text-texto-3">
-                        {s.tipo === "receita" ? "Receita" : "Despesa"} · todo dia {s.dia} · {s.meses} dos últimos 4 meses
+                        {s.tipo === "receita" ? "Receita" : "Despesa"} · todo dia {s.dia} · em {s.meses} dos últimos 6 meses
                       </span>
                     </span>
                     <span className={`shrink-0 text-sm ${s.tipo === "receita" ? "text-positivo" : "text-texto"}`}>
