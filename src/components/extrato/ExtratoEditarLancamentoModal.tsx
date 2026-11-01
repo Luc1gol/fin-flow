@@ -15,6 +15,7 @@ import { ChevronDown, Loader2, Repeat, Trash2 } from "lucide-react";
 import { TagsExtrasField } from "@/components/form/TagsExtrasField";
 import { Botao, campoClasse } from "@/components/ui/base";
 import { IconeCategoria } from "@/components/ui/IconeCategoria";
+import { SeletorCategoria } from "@/components/ui/SeletorCategoria";
 import { ExtratoFolha } from "@/components/extrato/ExtratoFolha";
 import type { LancamentoExtrato } from "@/types/lancamento";
 import { mapLancamentoRowFromDb } from "@/lib/map-lancamento-extrato";
@@ -48,7 +49,6 @@ import {
   valorSelectCartaoId,
 } from "@/lib/conta-cartao-lancamento";
 
-const DATALIST_CATEGORIAS_ID = "lista-categorias-editar";
 const DATALIST_PESSOAS_ID = "lista-pessoas-dividir-editar";
 
 /** Campos de divisão gravados no lançamento (vazio = não mexe). */
@@ -686,23 +686,13 @@ export function ExtratoEditarLancamentoModal({
               />
             </div>
             <div className="min-w-0">
-              <label htmlFor="ext-edit-cat" className={rotuloClasse}>
-                Categoria
-              </label>
-              <input
-                id="ext-edit-cat"
-                list={DATALIST_CATEGORIAS_ID}
-                value={categoria}
-                onChange={(e) => setCategoria(e.target.value)}
-                className={`${campoClasse} mt-1`}
-                placeholder="Ex.: Alimentação"
-                autoComplete="off"
+              <span className={rotuloClasse}>Categoria</span>
+              <SeletorCategoria
+                valor={categoria}
+                onChange={setCategoria}
+                categorias={categoriasLista}
+                className="mt-1 h-11"
               />
-              <datalist id={DATALIST_CATEGORIAS_ID}>
-                {categoriasLista.map((c) => (
-                  <option key={c} value={c} />
-                ))}
-              </datalist>
             </div>
           </div>
 
