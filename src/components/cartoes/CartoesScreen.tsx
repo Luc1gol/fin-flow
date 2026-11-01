@@ -47,6 +47,7 @@ import {
 } from "@/lib/currency-input-mask";
 import { Botao, Card, LinhaLista, Secao, Valor, campoClasse } from "@/components/ui/base";
 import { BancoLogo, corBrilhoBanco } from "@/components/cartoes/BancoLogo";
+import { fechamentoDaFatura } from "@/lib/cartao-datas";
 import { InstituicaoPickerSheet } from "@/components/cartoes/InstituicaoPickerSheet";
 
 type CartaoUsuario = CartaoManual;
@@ -409,8 +410,11 @@ function DetalheCartao({
   const vencimento = vencBancoIso ? dataDeIso(vencBancoIso) : ciclo.vencimento;
   const diasVence = diasAte(vencimento, hoje);
 
-  // Fechamento: o do banco (avançado se já passou) ou o do ciclo manual.
-  const fechBancoIso = conta ? proximoVencimento(conta.faturaFechamento, null, hoje) : null;
+  // Fechamento: o do banco (ou calculado pelo vencimento do banco), avançado se já passou;
+  // sem banco, o do ciclo manual.
+  const fechBancoIso = conta
+    ? proximoVencimento(fechamentoDaFatura(conta.faturaFechamento, conta.faturaVencimento, cartao.banco), null, hoje)
+    : null;
   const fechamento = fechBancoIso ? dataDeIso(fechBancoIso) : ciclo.fechamento;
   const diasFecha = diasAte(fechamento, hoje);
 
