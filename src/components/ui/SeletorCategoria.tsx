@@ -107,7 +107,7 @@ function FolhaCategorias({
         aria-modal="true"
         aria-label={`Escolher ${rotulo.toLowerCase()}`}
         onClick={(e) => e.stopPropagation()}
-        className="vidro flex max-h-[80dvh] w-full max-w-[430px] flex-col rounded-t-3xl pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:max-w-md lg:rounded-3xl"
+        className="flex max-h-[80dvh] border border-borda-forte bg-superficie/95 shadow-2xl backdrop-blur-xl w-full max-w-[430px] flex-col rounded-t-3xl pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:max-w-md lg:rounded-3xl"
       >
         <div className="flex items-center justify-between px-4 pb-2 pt-4">
           <h2 className="text-base font-semibold text-texto">{rotulo}</h2>
