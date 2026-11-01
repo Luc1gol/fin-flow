@@ -49,6 +49,11 @@ function dataIso(valor: string | null | undefined): string | null {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date(valor));
 }
 
+function diaDoMes(dataIsoValor: string | null): number | null {
+  const dia = dataIsoValor ? Number(dataIsoValor.slice(8, 10)) : NaN;
+  return dia >= 1 && dia <= 31 ? dia : null;
+}
+
 function dataInicial(conta: ContaApp): string {
   const d = conta.ultima_sincronizacao ? new Date(conta.ultima_sincronizacao) : new Date();
   d.setDate(d.getDate() - (conta.ultima_sincronizacao ? DIAS_SOBREPOSICAO : DIAS_HISTORICO_INICIAL));
@@ -168,6 +173,24 @@ async function salvarDadosCartao(
       pagamento_minimo: c?.minimumPayment ?? null,
     })
     .eq("id", contaId);
+
+  // Mantém os dias de fechamento e vencimento do cartão cadastrado iguais aos do banco,
+  // para a projeção, os avisos e o ciclo da fatura usarem as datas reais.
+  const diaFechamento = diaDoMes(dataIso(c?.balanceCloseDate));
+  const diaVencimento = diaDoMes(dataIso(c?.balanceDueDate));
+  if (diaFechamento || diaVencimento) {
+    const { data: vinculo } = await db.from("contas").select("cartao_id").eq("id", contaId).maybeSingle();
+    if (vinculo?.cartao_id) {
+      await db
+        .from("cartoes")
+        .update({
+          ...(diaFechamento ? { dia_fechamento: diaFechamento } : {}),
+          ...(diaVencimento ? { dia_vencimento: diaVencimento } : {}),
+        })
+        .eq("id", vinculo.cartao_id)
+        .eq("user_id", userId);
+    }
+  }
 
   const faturas = await listarFaturas(apiKey, p.id).catch((e) => {
     console.error("[open-finance] faturas", e);

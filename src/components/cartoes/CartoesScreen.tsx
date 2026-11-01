@@ -392,7 +392,6 @@ function DetalheCartao({
 }) {
   const hoje = hojeSemHora();
   const ciclo = cicloAtual(cartao.diaFechamento, cartao.diaVencimento, hoje);
-  const diasFecha = diasAte(ciclo.fechamento, hoje);
 
   const doBanco = conta !== null && conta.saldo !== null;
 
@@ -409,6 +408,11 @@ function DetalheCartao({
   const vencBancoIso = conta ? proximoVencimento(conta.faturaVencimento, null, hoje) : null;
   const vencimento = vencBancoIso ? dataDeIso(vencBancoIso) : ciclo.vencimento;
   const diasVence = diasAte(vencimento, hoje);
+
+  // Fechamento: o do banco (avançado se já passou) ou o do ciclo manual.
+  const fechBancoIso = conta ? proximoVencimento(conta.faturaFechamento, null, hoje) : null;
+  const fechamento = fechBancoIso ? dataDeIso(fechBancoIso) : ciclo.fechamento;
+  const diasFecha = diasAte(fechamento, hoje);
 
   const atualizado = doBanco ? textoAtualizado(conta.saldoEm ?? conta.ultimaSincronizacao) : null;
 
@@ -475,10 +479,13 @@ function DetalheCartao({
           icone={<CalendarClock className="h-4 w-4" aria-hidden />}
           rotulo="Fechamento"
           valor={
-            <>
-              Dia {cartao.diaFechamento}
-              <span className="ml-1.5 text-xs text-texto-3">{textoDias(diasFecha)}</span>
-            </>
+            <span className="inline-flex items-center gap-1.5">
+              {fechBancoIso ? <SeloBanco /> : null}
+              Dia {fechamento.getDate()}
+              <span className="text-xs text-texto-3">
+                {dataCurta(fechamento)} · {textoDias(diasFecha)}
+              </span>
+            </span>
           }
         />
         <LinhaInfo
@@ -509,7 +516,7 @@ function DetalheCartao({
         <LinhaInfo
           icone={<ShoppingBag className="h-4 w-4" aria-hidden />}
           rotulo="Melhor dia de compra"
-          valor={<span className="font-medium text-positivo">Dia {cartao.diaFechamento}</span>}
+          valor={<span className="font-medium text-positivo">Dia {fechamento.getDate()}</span>}
         />
       </Card>
 
