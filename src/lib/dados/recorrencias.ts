@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import { CONTA_CORRENTE_LABEL } from "@/lib/conta-cartao-lancamento";
 import { normalizarTexto } from "@/lib/importacao/classificar";
@@ -135,8 +136,13 @@ async function usuarioId(): Promise<string> {
   return data.user.id;
 }
 
-export async function listarRecorrenciasAtivas(): Promise<Recorrencia[]> {
-  const { data, error } = await supabase.from("recorrencias").select("*").eq("status", "ativa");
+export async function listarRecorrenciasAtivas(
+  db: SupabaseClient = supabase,
+  userId?: string,
+): Promise<Recorrencia[]> {
+  let consulta = db.from("recorrencias").select("*").eq("status", "ativa");
+  if (userId) consulta = consulta.eq("user_id", userId);
+  const { data, error } = await consulta;
   if (error) throw error;
   return (data ?? []).map(mapRecorrencia);
 }

@@ -4,6 +4,10 @@ import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 import {
   ChartPie,
+  FileText,
+  Flag,
+  HandCoins,
+  Landmark,
   CreditCard,
   Home,
   Inbox,
@@ -27,9 +31,13 @@ export const ITENS_NAV: ItemNav[] = [
 
 /** Só no menu lateral (desktop); no celular ficam no Início e no perfil. */
 export const ITENS_NAV_EXTRAS: ItemNav[] = [
+  { href: "/patrimonio", label: "Patrimônio", Icon: Landmark },
   { href: "/projecao", label: "Projeção", Icon: TrendingUp },
   { href: "/orcamentos", label: "Orçamentos", Icon: Target },
   { href: "/recorrencias", label: "Contas fixas", Icon: Repeat },
+  { href: "/metas", label: "Metas", Icon: Flag },
+  { href: "/a-receber", label: "A receber", Icon: HandCoins },
+  { href: "/resumo", label: "Resumo do mês", Icon: FileText },
   { href: "/importar", label: "Revisar", Icon: Inbox },
   { href: "/perfil", label: "Perfil", Icon: Settings },
 ];

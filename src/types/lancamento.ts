@@ -23,6 +23,12 @@ export type LancamentoExtrato = {
   tags_extras?: string[];
   /** Anotação livre do usuário (coluna `observacao`). */
   observacao?: string;
+  /** Com quem a despesa foi dividida (coluna `dividido_com`). */
+  divididoCom?: string;
+  /** Quanto essa pessoa deve ao usuário (coluna `valor_a_receber`). */
+  valorAReceber?: number;
+  /** yyyy-mm-dd quando a pessoa pagou (coluna `recebido_em`). */
+  recebidoEm?: string;
 };
 
 /** Seeder para a tela Extrato — será substituído por API / store. */

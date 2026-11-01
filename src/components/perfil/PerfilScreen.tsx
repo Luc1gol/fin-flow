@@ -19,6 +19,7 @@ import {
 
 import { supabase } from "@/lib/supabase";
 import { Botao, Card, campoClasse } from "@/components/ui/base";
+import { ConfigNotificacoes } from "@/components/perfil/ConfigNotificacoes";
 
 const campo = `${campoClasse} h-10 rounded-xl`;
 
@@ -411,6 +412,12 @@ export function PerfilScreen() {
               ) : null}
               {salvandoInfo ? "Salvando…" : "Salvar alterações"}
             </Botao>
+          </section>
+
+          {/* Notificações */}
+          <section aria-label="Notificações">
+            <h2 className="mb-1.5 px-1 text-xs font-medium uppercase tracking-wide text-texto-3">Avisos</h2>
+            <ConfigNotificacoes />
           </section>
 
           {/* Conta */}

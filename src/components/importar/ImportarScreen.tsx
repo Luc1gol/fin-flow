@@ -235,13 +235,16 @@ export function ImportarScreen() {
     try {
       const { contas: porConta, bancoAtualizadoEm, proximaAtualizacao } = await sincronizarOpenFinance();
       const novas = porConta.reduce((acc, c) => acc + c.novas, 0);
+      const automaticas = porConta.reduce((acc, c) => acc + (c.automaticas ?? 0), 0);
       setContas(await listarContas());
       await recarregarPendentes();
       setAtualizacaoBanco({ ultima: bancoAtualizadoEm, proxima: proximaAtualizacao });
       setAviso(
         novas === 0
           ? "Nenhuma transação nova desde a última atualização do banco."
-          : `${novas} transações novas do banco.`,
+          : `${novas} transações novas do banco${
+              automaticas > 0 ? `, ${automaticas} confirmadas sozinhas pelas suas regras` : ""
+            }.`,
       );
     } catch (e) {
       console.error(e);

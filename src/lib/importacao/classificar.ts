@@ -18,6 +18,8 @@ export type SugestaoLancamento = {
   valor: number;
   /** Quando true, a transação não traz informação suficiente (ex.: Pix enviado sem destinatário). */
   precisaRevisao: boolean;
+  /** Veio de uma regra que o usuário ensinou (pode ser confirmada sozinha). */
+  porRegra?: boolean;
 };
 
 /** Regra aprendida: quando a chave da transação bate, usa estes valores. */
@@ -133,6 +135,7 @@ export function classificarTransacao(
     categoria: regra.categoria ?? base.categoria,
     descricao: regra.descricao ?? base.descricao,
     precisaRevisao: false,
+    porRegra: true,
   };
 }
 

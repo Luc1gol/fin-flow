@@ -56,5 +56,14 @@ export function mapLancamentoRowFromDb(
     ...(row.observacao != null && String(row.observacao).trim()
       ? { observacao: String(row.observacao).trim() }
       : {}),
+    ...(row.dividido_com != null && String(row.dividido_com).trim()
+      ? { divididoCom: String(row.dividido_com).trim() }
+      : {}),
+    ...(row.valor_a_receber != null && parseValorDb(row.valor_a_receber) > 0
+      ? { valorAReceber: parseValorDb(row.valor_a_receber) }
+      : {}),
+    ...(row.recebido_em != null && String(row.recebido_em).trim()
+      ? { recebidoEm: String(row.recebido_em).slice(0, 10) }
+      : {}),
   };
 }

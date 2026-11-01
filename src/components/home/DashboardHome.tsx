@@ -14,6 +14,9 @@ import {
   UserRound,
 } from "lucide-react";
 import { useDashboardPeriod } from "@/components/layout/dashboard-period-context";
+import { ITENS_NAV_EXTRAS } from "@/components/layout/BottomNav";
+import { CartaoPatrimonioInicio } from "@/components/patrimonio/CartaoPatrimonioInicio";
+import { CartaoResumoInicio } from "@/components/resumo/CartaoResumoInicio";
 import { Card, Chip, LinhaLista, Secao, Valor } from "@/components/ui/base";
 import { carregarResumoInicio, type MovimentoResumo, type ResumoInicio } from "@/lib/dados/inicio";
 import { carregarPainelOrcamento, statusDoItem, type PainelOrcamento } from "@/lib/dados/orcamentos";
@@ -53,6 +56,25 @@ function fatiasPorCategoria(movs: MovimentoResumo[], tipo: "despesa" | "receita"
     pct: Math.round((valor / total) * 100),
     cor: CORES_CATEGORIA[Math.min(i, CORES_CATEGORIA.length - 1)]!,
   }));
+}
+
+/** Atalhos para as telas que não cabem na barra de baixo (no computador ficam no menu lateral). */
+function Atalhos() {
+  const itens = ITENS_NAV_EXTRAS.filter((i) => i.href !== "/perfil");
+  return (
+    <nav aria-label="Atalhos" className="grid grid-cols-4 gap-2 lg:hidden">
+      {itens.map(({ href, label, Icon }) => (
+        <Link
+          key={href}
+          href={href}
+          className="vidro-suave flex flex-col items-center gap-1.5 rounded-2xl px-1 py-2.5 text-center text-[11px] leading-tight text-texto-2 active:scale-95"
+        >
+          <Icon className="h-[18px] w-[18px] text-marca" aria-hidden />
+          {label}
+        </Link>
+      ))}
+    </nav>
+  );
 }
 
 /** Linha "Contas fixas": quantas faltam pagar no mês e quanto. */
@@ -325,6 +347,8 @@ export function DashboardHome() {
 
       {erro ? <p className="text-sm text-negativo">{erro}</p> : null}
 
+      <CartaoResumoInicio oculto={oculto} />
+
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] lg:items-start">
         <div className="flex flex-col gap-5">
           {/* Saldo e resultado do mês */}
@@ -456,6 +480,9 @@ export function DashboardHome() {
           </Secao>
         </div>
 
+        <div className="flex flex-col gap-5">
+        <CartaoPatrimonioInicio oculto={oculto} />
+        <Atalhos />
         {/* Últimas movimentações */}
         <Secao titulo="Últimas movimentações" acao={{ label: "Extrato", href: "/extrato" }}>
           <Card className="px-3">
@@ -509,6 +536,7 @@ export function DashboardHome() {
             )}
           </Card>
         </Secao>
+        </div>
       </div>
     </div>
   );

@@ -36,6 +36,11 @@ import {
 } from "@/lib/tags-extras-coalesce";
 import { fetchDistinctTagsExtrasHistoricoForUser } from "@/lib/tags-extras-historico";
 import {
+  listarPessoasDivididas,
+  metadeEmCentavos,
+  validarDivisao,
+} from "@/lib/dados/divididos";
+import {
   CONTA_CORRENTE_LABEL,
   type CartaoUsuarioOrigem,
   contaCartaoDbParaSelectValue,
@@ -44,6 +49,14 @@ import {
 } from "@/lib/conta-cartao-lancamento";
 
 const DATALIST_CATEGORIAS_ID = "lista-categorias-editar";
+const DATALIST_PESSOAS_ID = "lista-pessoas-dividir-editar";
+
+/** Campos de divisão gravados no lançamento (vazio = não mexe). */
+type CamposDivisao = {
+  dividido_com?: string | null;
+  valor_a_receber?: number | null;
+  recebido_em?: string | null;
+};
 
 type Props = {
   item: LancamentoExtrato;
@@ -92,6 +105,12 @@ export function ExtratoEditarLancamentoModal({
   );
   const [tagInput, setTagInput] = useState("");
   const [tagsHistorico, setTagsHistorico] = useState<string[]>([]);
+  const [divididoCom, setDivididoCom] = useState(() => item.divididoCom ?? "");
+  /** Dígitos (centavos) do valor a receber; null = metade do valor (padrão). */
+  const [receberDigits, setReceberDigits] = useState<string | null>(() =>
+    item.valorAReceber != null ? reaisToAmountDigits(item.valorAReceber) : null,
+  );
+  const [pessoasDivididas, setPessoasDivididas] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [recurrencePickerOpen, setRecurrencePickerOpen] = useState(false);
@@ -104,11 +123,15 @@ export function ExtratoEditarLancamentoModal({
     contaDb: string | null;
     tagsExtrasDb: unknown;
     meioPagamentoDb: string | null;
+    camposDivisao: CamposDivisao;
   } | null>(null);
   const salvarExtratoLockRef = useRef(false);
   const scopeApplyLockRef = useRef(false);
 
   const valorMasked = formatMaskedValorDisplay(amountDigits);
+  const receberDigitsEfetivo =
+    receberDigits ??
+    reaisToAmountDigits(metadeEmCentavos(parseAmountDigitsToReais(amountDigits)));
 
   useLayoutEffect(() => {
     const el = valorInputRef.current;
@@ -133,6 +156,19 @@ export function ExtratoEditarLancamentoModal({
       cancelled = true;
     };
   }, [item.id]);
+
+  useEffect(() => {
+    if (item.tipo !== "despesa") return;
+    let cancelled = false;
+    listarPessoasDivididas()
+      .then((nomes) => {
+        if (!cancelled) setPessoasDivididas(nomes);
+      })
+      .catch((e) => console.error(e));
+    return () => {
+      cancelled = true;
+    };
+  }, [item.id, item.tipo]);
 
   useEffect(() => {
     // Outra folha (ex.: exclusão em série) por cima trata o Esc.
@@ -217,6 +253,7 @@ export function ExtratoEditarLancamentoModal({
               observacao: observacao.trim() || null,
               tags_extras: p.tagsExtrasDb,
               meio_pagamento: p.meioPagamentoDb,
+              ...p.camposDivisao,
             })
             .eq("id", item.id)
             .eq("user_id", user.id)
@@ -332,6 +369,23 @@ export function ExtratoEditarLancamentoModal({
             ? item.meioPagamentoTipo.trim()
             : null;
 
+        // "Dividido com" só vale para despesas; nome vazio limpa a divisão.
+        let camposDivisao: CamposDivisao = {};
+        if (item.tipo === "despesa") {
+          const divisao = validarDivisao(
+            divididoCom,
+            parseAmountDigitsToReais(receberDigitsEfetivo),
+            novoValor,
+          );
+          if (!divisao.ok) {
+            setErrorMsg(divisao.erro);
+            return;
+          }
+          camposDivisao = divisao.divididoCom
+            ? { dividido_com: divisao.divididoCom, valor_a_receber: divisao.valorAReceber }
+            : { dividido_com: null, valor_a_receber: null, recebido_em: null };
+        }
+
         if (item.recorrencia_id?.trim()) {
           pendingEditRef.current = {
             novaDesc,
@@ -341,6 +395,7 @@ export function ExtratoEditarLancamentoModal({
             contaDb,
             tagsExtrasDb,
             meioPagamentoDb,
+            camposDivisao,
           };
           setRecurrencePickerOpen(true);
           return;
@@ -417,6 +472,20 @@ export function ExtratoEditarLancamentoModal({
             return;
           }
 
+          // A divisão vale só para esta parcela (as demais não mudam).
+          if (Object.keys(camposDivisao).length > 0) {
+            const { error: divErr } = await supabase
+              .from("lancamentos")
+              .update(camposDivisao)
+              .eq("id", item.id)
+              .eq("user_id", user.id);
+            if (divErr) {
+              console.error(divErr);
+              setErrorMsg(divErr.message ?? "Não foi possível salvar a divisão.");
+              return;
+            }
+          }
+
           await onRefreshList();
           onClose();
           return;
@@ -433,6 +502,7 @@ export function ExtratoEditarLancamentoModal({
             observacao: observacao.trim() || null,
             tags_extras: tagsExtrasDb,
             meio_pagamento: meioPagamentoDb,
+            ...camposDivisao,
           })
           .eq("id", item.id)
           .eq("user_id", user.id)
@@ -459,6 +529,8 @@ export function ExtratoEditarLancamentoModal({
     [
       descricao,
       observacao,
+      divididoCom,
+      receberDigitsEfetivo,
       amountDigits,
       dataISO,
       contaState,
@@ -669,6 +741,69 @@ export function ExtratoEditarLancamentoModal({
             tagsHistorico={tagsHistorico}
             ringFocus=""
           />
+
+          {item.tipo === "despesa" ? (
+            <div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="min-w-0">
+                  <label htmlFor="ext-edit-dividido" className={rotuloClasse}>
+                    Dividido com
+                  </label>
+                  <input
+                    id="ext-edit-dividido"
+                    list={DATALIST_PESSOAS_ID}
+                    value={divididoCom}
+                    onChange={(e) => {
+                      setDivididoCom(e.target.value);
+                      setErrorMsg(null);
+                    }}
+                    className={`${campoClasse} mt-1`}
+                    placeholder="Ninguém"
+                    autoComplete="off"
+                  />
+                  <datalist id={DATALIST_PESSOAS_ID}>
+                    {pessoasDivididas.map((nome) => (
+                      <option key={nome} value={nome} />
+                    ))}
+                  </datalist>
+                </div>
+                {divididoCom.trim() ? (
+                  <div className="min-w-0">
+                    <label htmlFor="ext-edit-receber" className={rotuloClasse}>
+                      Te deve
+                    </label>
+                    <div className="relative mt-1">
+                      <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-texto-3">
+                        R$
+                      </span>
+                      <input
+                        id="ext-edit-receber"
+                        type="text"
+                        inputMode="numeric"
+                        autoComplete="off"
+                        value={formatMaskedValorDisplay(receberDigitsEfetivo)}
+                        onChange={(e) => {
+                          const only = e.target.value.replace(/\D/g, "");
+                          setReceberDigits(only.slice(0, MAX_AMOUNT_DIGITS_LANCAMENTO));
+                          setErrorMsg(null);
+                        }}
+                        className={`${campoClasse} valor pl-10`}
+                      />
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+              {divididoCom.trim() ? (
+                <p className="mt-1 text-[11px] text-texto-3">
+                  {item.recebidoEm && item.divididoCom
+                    ? `Recebido em ${item.recebidoEm.split("-").reverse().join("/")}.`
+                    : receberDigits == null
+                      ? "Metade do valor. Aparece em A receber até a pessoa pagar."
+                      : "Aparece em A receber até a pessoa pagar."}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
 
           <label className="flex flex-col gap-1 text-xs text-texto-2">
             Observações

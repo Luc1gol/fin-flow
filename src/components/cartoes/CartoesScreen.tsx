@@ -15,13 +15,28 @@ import {
   CalendarClock,
   ChevronDown,
   CreditCard,
+  Landmark,
+  Link2,
   Pencil,
   Plus,
+  ReceiptText,
   ShoppingBag,
   Trash2,
   X,
 } from "lucide-react";
+import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis } from "recharts";
 import { supabase } from "@/lib/supabase";
+import {
+  carregarCartoesComBanco,
+  faturaPaga,
+  mapCartaoManual,
+  proximoVencimento,
+  vincularContaAoCartao,
+  type CartaoManual,
+  type ContaCartaoBanco,
+  type FaturaBanco,
+} from "@/lib/dados/cartoes-banco";
+import { formatBRL } from "@/lib/format-currency";
 import { getBancoById } from "@/data/bancos";
 import { labelContaCartaoPersistido } from "@/lib/conta-cartao-lancamento";
 import {
@@ -30,45 +45,21 @@ import {
   parseAmountDigitsToReais,
   reaisToAmountDigits,
 } from "@/lib/currency-input-mask";
-import { Botao, Card, Valor, campoClasse } from "@/components/ui/base";
+import { Botao, Card, LinhaLista, Secao, Valor, campoClasse } from "@/components/ui/base";
 import { BancoLogo, corBrilhoBanco } from "@/components/cartoes/BancoLogo";
 import { InstituicaoPickerSheet } from "@/components/cartoes/InstituicaoPickerSheet";
 
-type CartaoUsuario = {
-  id: string;
-  /** Id da instituição em `BANCOS` (ex.: nubank, itau). */
-  banco: string;
-  nome: string;
-  diaFechamento: number;
-  diaVencimento: number;
-  limite: number;
-};
+type CartaoUsuario = CartaoManual;
 
 /** Lançamento de despesa feito em um cartão (só leitura, para a fatura aberta). */
 type GastoCartao = { conta: string; data: string; valor: number };
-
-function parseIntSafe(v: unknown): number {
-  const n =
-    typeof v === "number" ? Math.trunc(v) : Number.parseInt(String(v ?? "0"), 10);
-  return Number.isFinite(n) ? n : 0;
-}
 
 function parseNumero(v: unknown): number {
   const n = typeof v === "number" ? v : Number.parseFloat(String(v ?? "0"));
   return Number.isFinite(n) ? n : 0;
 }
 
-function mapCartaoRow(row: Record<string, unknown>): CartaoUsuario {
-  const bancoRaw = String(row.banco ?? "").trim();
-  return {
-    id: String(row.id),
-    banco: bancoRaw || "outros",
-    nome: String(row.nome ?? "").trim(),
-    diaFechamento: parseIntSafe(row.dia_fechamento),
-    diaVencimento: parseIntSafe(row.dia_vencimento),
-    limite: parseNumero(row.limite),
-  };
-}
+const mapCartaoRow = mapCartaoManual;
 
 const BANCO_PADRAO_ID = "nubank";
 
@@ -144,6 +135,59 @@ function faturaDoCartao(cartao: CartaoUsuario, gastos: GastoCartao[], hoje: Date
   return total;
 }
 
+/** Valor exibido da fatura: o do banco quando vinculado, senão a estimativa pelos lançamentos. */
+function faturaExibida(
+  cartao: CartaoUsuario,
+  conta: ContaCartaoBanco | null,
+  gastos: GastoCartao[],
+  hoje: Date,
+): number {
+  if (conta && conta.saldo !== null) return conta.saldo;
+  return faturaDoCartao(cartao, gastos, hoje);
+}
+
+/** "yyyy-mm-dd" → Date local (meia-noite). */
+function dataDeIso(s: string): Date {
+  const [y, m, d] = s.split("-").map(Number);
+  return new Date(y ?? 1970, (m ?? 1) - 1, d ?? 1);
+}
+
+const fmtAtualizado = new Intl.DateTimeFormat("pt-BR", {
+  day: "2-digit",
+  month: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+function textoAtualizado(iso: string | null): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return fmtAtualizado.format(d).replace(",", "");
+}
+
+const fmtMesCurto = new Intl.DateTimeFormat("pt-BR", { month: "short" });
+const fmtMesAno = new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric" });
+const fmtDiaMesNum = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit" });
+
+function capitalizar(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function rotuloConta(c: ContaCartaoBanco): string {
+  const final = c.numeroConta ? c.numeroConta.replace(/\D/g, "").slice(-4) : "";
+  return final ? `${c.nome || "Cartão"} · ${final}` : c.nome || "Cartão";
+}
+
+function SeloBanco() {
+  return (
+    <span className="inline-flex items-center gap-0.5 rounded-full bg-marca/12 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-marca">
+      <Landmark className="h-2.5 w-2.5" aria-hidden />
+      do banco
+    </span>
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /* Cartão visual (carrossel)                                           */
 /* ------------------------------------------------------------------ */
@@ -151,11 +195,13 @@ function faturaDoCartao(cartao: CartaoUsuario, gastos: GastoCartao[], hoje: Date
 function CartaoMini({
   cartao,
   fatura,
+  doBanco,
   ativo,
   onSelect,
 }: {
   cartao: CartaoUsuario;
   fatura: number;
+  doBanco: boolean;
   ativo: boolean;
   onSelect: (el: HTMLElement) => void;
 }) {
@@ -187,7 +233,10 @@ function CartaoMini({
         </span>
       </span>
       <span className="relative">
-        <span className="block text-[10px] uppercase tracking-wider text-texto-3">Fatura aberta</span>
+        <span className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-texto-3">
+          {doBanco ? "Fatura atual" : "Fatura aberta"}
+          {doBanco ? <Landmark className="h-2.5 w-2.5 text-marca" aria-label="do banco" /> : null}
+        </span>
         <span className="block text-base font-semibold text-texto">
           <Valor valor={fatura} />
         </span>
@@ -218,59 +267,180 @@ function LinhaInfo({
   );
 }
 
+function BarraUso({ usado, limite }: { usado: number; limite: number }) {
+  const uso = limite > 0 ? usado / limite : 0;
+  const corBarra = uso > 1 ? "bg-negativo" : uso > 0.8 ? "bg-alerta" : "bg-marca";
+  return (
+    <div
+      className="h-2 overflow-hidden rounded-full bg-white/[0.07]"
+      role="progressbar"
+      aria-label="Uso do limite"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={Math.round(Math.min(Math.max(uso, 0), 1) * 100)}
+    >
+      <div
+        className={`h-full rounded-full transition-[width] ${corBarra}`}
+        style={{ width: `${Math.min(Math.max(uso, 0), 1) * 100}%` }}
+      />
+    </div>
+  );
+}
+
+type PontoFatura = { rotulo: string; valor: number; paga: boolean; vencimento: string };
+
+function TooltipFatura({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: { payload: PontoFatura }[];
+}) {
+  if (!active || !payload?.length) return null;
+  const p = payload[0]!.payload;
+  return (
+    <div className="vidro rounded-xl px-3 py-2 text-xs">
+      <p className="text-texto-3">Vence {fmtDiaMesNum.format(dataDeIso(p.vencimento))}</p>
+      <p className="text-texto">{formatBRL(p.valor)}</p>
+    </div>
+  );
+}
+
+function StatusFatura({ fatura }: { fatura: FaturaBanco }) {
+  if (faturaPaga(fatura)) return <span className="text-[11px] text-positivo">Paga</span>;
+  if (fatura.valorPago > 0) {
+    return <span className="text-[11px] text-alerta">Pago {formatBRL(fatura.valorPago)}</span>;
+  }
+  return <span className="text-[11px] text-texto-3">Em aberto</span>;
+}
+
+function HistoricoFaturas({ faturas }: { faturas: FaturaBanco[] }) {
+  if (faturas.length === 0) return null;
+  const serie: PontoFatura[] = faturas
+    .slice(0, 6)
+    .reverse()
+    .map((f) => ({
+      rotulo: fmtMesCurto.format(dataDeIso(f.vencimento)).replace(".", ""),
+      valor: f.valorTotal,
+      paga: faturaPaga(f),
+      vencimento: f.vencimento,
+    }));
+
+  return (
+    <Secao titulo="Histórico de faturas">
+      <Card className="px-3 pt-3">
+        {serie.length > 1 ? (
+          <div className="h-24">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={serie} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
+                <XAxis
+                  dataKey="rotulo"
+                  tick={{ fill: "#71717a", fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <Tooltip content={<TooltipFatura />} cursor={{ fill: "rgb(255 255 255 / 0.05)" }} />
+                <Bar dataKey="valor" radius={[5, 5, 0, 0]} maxBarSize={28}>
+                  {serie.map((p) => (
+                    <Cell key={p.vencimento} fill={p.paga ? "#4f8cff" : "rgb(79 140 255 / 0.45)"} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        ) : null}
+        <div className="divide-y divide-borda">
+          {faturas.map((f) => {
+            const venc = dataDeIso(f.vencimento);
+            return (
+              <LinhaLista
+                key={f.id}
+                icone={<ReceiptText className="h-4 w-4" aria-hidden />}
+                titulo={capitalizar(fmtMesAno.format(venc))}
+                subtitulo={`Vencimento ${fmtDiaMesNum.format(venc)}`}
+                direita={
+                  <span className="flex flex-col items-end leading-tight">
+                    <Valor valor={f.valorTotal} />
+                    <StatusFatura fatura={f} />
+                  </span>
+                }
+              />
+            );
+          })}
+        </div>
+      </Card>
+    </Secao>
+  );
+}
+
 function DetalheCartao({
   cartao,
   fatura,
+  conta,
+  faturasBanco,
+  podeVincular,
   onEdit,
   onDelete,
 }: {
   cartao: CartaoUsuario;
   fatura: number;
+  conta: ContaCartaoBanco | null;
+  faturasBanco: FaturaBanco[];
+  podeVincular: boolean;
   onEdit: (c: CartaoUsuario) => void;
   onDelete: (id: string) => void;
 }) {
   const hoje = hojeSemHora();
   const ciclo = cicloAtual(cartao.diaFechamento, cartao.diaVencimento, hoje);
   const diasFecha = diasAte(ciclo.fechamento, hoje);
-  const diasVence = diasAte(ciclo.vencimento, hoje);
 
-  const temLimite = cartao.limite > 0;
-  const uso = temLimite ? fatura / cartao.limite : 0;
-  const corBarra = uso > 1 ? "bg-negativo" : uso > 0.8 ? "bg-alerta" : "bg-marca";
-  const disponivel = cartao.limite - fatura;
+  const doBanco = conta !== null && conta.saldo !== null;
+
+  // Limite: prefere o do banco; disponível idem (senão, limite − fatura).
+  const limite = conta?.limite ?? (cartao.limite > 0 ? cartao.limite : 0);
+  const limiteDoBanco = conta?.limite != null;
+  const disponivel =
+    conta?.limiteDisponivel != null && limiteDoBanco ? conta.limiteDisponivel : limite - fatura;
+  const usado = limite - disponivel;
+  const temLimite = limite > 0;
+  const uso = temLimite ? usado / limite : 0;
+
+  // Vencimento: o do banco (avançado se já passou) ou o do ciclo manual.
+  const vencBancoIso = conta ? proximoVencimento(conta.faturaVencimento, null, hoje) : null;
+  const vencimento = vencBancoIso ? dataDeIso(vencBancoIso) : ciclo.vencimento;
+  const diasVence = diasAte(vencimento, hoje);
+
+  const atualizado = doBanco ? textoAtualizado(conta.saldoEm ?? conta.ultimaSincronizacao) : null;
 
   return (
     <section className="flex flex-col gap-3">
       <div>
-        <p className="text-xs text-texto-3">
-          Fatura aberta · fecha {dataCurta(ciclo.fechamento)}
-        </p>
+        {doBanco ? (
+          <p className="flex items-center gap-1.5 text-xs text-texto-3">
+            Fatura atual <SeloBanco />
+          </p>
+        ) : (
+          <p className="text-xs text-texto-3">
+            Fatura aberta · fecha {dataCurta(ciclo.fechamento)}
+          </p>
+        )}
         <p className="mt-0.5 text-[28px] font-semibold leading-tight text-texto">
           <Valor valor={fatura} />
         </p>
         <p className="mt-0.5 text-[11px] text-texto-3">
-          Soma das despesas lançadas neste cartão desde {dataCurta(ciclo.inicio)}.
+          {doBanco
+            ? `${atualizado ? `Atualizado ${atualizado}` : "Valor informado pelo banco"} · ${conta.nome || "conta do banco"}`
+            : `Soma das despesas lançadas neste cartão desde ${dataCurta(ciclo.inicio)}.`}
         </p>
       </div>
 
       {temLimite ? (
         <div>
-          <div
-            className="h-2 overflow-hidden rounded-full bg-white/[0.07]"
-            role="progressbar"
-            aria-label="Uso do limite"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={Math.round(Math.min(uso, 1) * 100)}
-          >
-            <div
-              className={`h-full rounded-full transition-[width] ${corBarra}`}
-              style={{ width: `${Math.min(uso, 1) * 100}%` }}
-            />
-          </div>
-          <div className="mt-1.5 flex items-baseline justify-between text-xs">
-            <span className="text-texto-3">
-              {Math.round(uso * 100)}% de <Valor valor={cartao.limite} />
+          <BarraUso usado={usado} limite={limite} />
+          <div className="mt-1.5 flex items-baseline justify-between gap-2 text-xs">
+            <span className="flex items-center gap-1 text-texto-3">
+              {Math.round(uso * 100)}% de <Valor valor={limite} />
+              {limiteDoBanco ? <SeloBanco /> : null}
             </span>
             <span className={disponivel < 0 ? "text-negativo" : "text-texto-2"}>
               {disponivel < 0 ? "Acima do limite " : "Disponível "}
@@ -288,6 +458,18 @@ function DetalheCartao({
         </button>
       )}
 
+      {!conta && podeVincular ? (
+        <button
+          type="button"
+          onClick={() => onEdit(cartao)}
+          className="vidro-suave flex touch-manipulation items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-xs text-texto-2 transition hover:text-texto"
+        >
+          <Link2 className="h-4 w-4 shrink-0 text-marca" aria-hidden />
+          <span className="flex-1">Conecte este cartão ao banco para ver valores reais</span>
+          <span className="font-medium text-marca">Conectar</span>
+        </button>
+      ) : null}
+
       <Card className="divide-y divide-borda px-3">
         <LinhaInfo
           icone={<CalendarClock className="h-4 w-4" aria-hidden />}
@@ -303,20 +485,35 @@ function DetalheCartao({
           icone={<CalendarCheck className="h-4 w-4" aria-hidden />}
           rotulo="Vencimento"
           valor={
-            <>
-              Dia {cartao.diaVencimento}
-              <span className="ml-1.5 text-xs text-texto-3">
-                {dataCurta(ciclo.vencimento)} · {textoDias(diasVence)}
+            <span className="inline-flex items-center gap-1.5">
+              {vencBancoIso ? <SeloBanco /> : null}
+              Dia {vencimento.getDate()}
+              <span className="text-xs text-texto-3">
+                {dataCurta(vencimento)} · {textoDias(diasVence)}
               </span>
-            </>
+            </span>
           }
         />
+        {conta?.pagamentoMinimo != null ? (
+          <LinhaInfo
+            icone={<ReceiptText className="h-4 w-4" aria-hidden />}
+            rotulo="Pagamento mínimo"
+            valor={
+              <span className="inline-flex items-center gap-1.5">
+                <SeloBanco />
+                <Valor valor={conta.pagamentoMinimo} />
+              </span>
+            }
+          />
+        ) : null}
         <LinhaInfo
           icone={<ShoppingBag className="h-4 w-4" aria-hidden />}
           rotulo="Melhor dia de compra"
           valor={<span className="font-medium text-positivo">Dia {cartao.diaFechamento}</span>}
         />
       </Card>
+
+      {conta ? <HistoricoFaturas faturas={faturasBanco} /> : null}
 
       <div className="flex gap-2">
         <Botao className="flex-1" onClick={() => onEdit(cartao)}>
@@ -349,8 +546,11 @@ const rotuloCampo = "mb-1 block text-xs font-medium text-texto-2";
 export function CartoesScreen() {
   const isClient = useSyncExternalStore(noopSubscribe, () => true, () => false);
   const [cartoes, setCartoes] = useState<CartaoUsuario[]>([]);
+  const [contas, setContas] = useState<ContaCartaoBanco[]>([]);
+  const [faturasPorConta, setFaturasPorConta] = useState<Record<string, FaturaBanco[]>>({});
   const [gastos, setGastos] = useState<GastoCartao[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [carregado, setCarregado] = useState(false);
+  const isLoading = !carregado;
   const [selecionadoId, setSelecionadoId] = useState<string | null>(null);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -361,6 +561,8 @@ export function CartoesScreen() {
   const [diaFechamento, setDiaFechamento] = useState("1");
   const [diaVencimento, setDiaVencimento] = useState("10");
   const [limiteDigitos, setLimiteDigitos] = useState("");
+  /** Conta do banco escolhida no formulário ("" = nenhuma). */
+  const [contaVinculo, setContaVinculo] = useState("");
   const [erroForm, setErroForm] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
 
@@ -370,47 +572,32 @@ export function CartoesScreen() {
   );
 
   useEffect(() => {
+    let cancelado = false;
+
     async function fetchCartoes() {
-      setIsLoading(true);
       try {
-        const {
-          data: { user },
-          error: uErr,
-        } = await supabase.auth.getUser();
-        if (uErr || !user) {
-          console.error(uErr);
-          setCartoes([]);
-          return;
-        }
+        // Cartões manuais + contas de crédito do banco (com vínculo automático) + faturas.
+        const dados = await carregarCartoesComBanco();
+        if (cancelado) return;
+        setCartoes(
+          dados.cartoes.map((c) => ({
+            id: c.id,
+            banco: c.banco,
+            nome: c.nome,
+            diaFechamento: c.diaFechamento,
+            diaVencimento: c.diaVencimento,
+            limite: c.limite,
+          })),
+        );
+        setContas(dados.contasCredito);
+        setFaturasPorConta(dados.faturasPorConta);
 
-        const bundle = await supabase
-          .from("cartoes")
-          .select("*")
-          .eq("user_id", user.id)
-          .order("created_at", { ascending: false });
-
-        const error = bundle.error;
-        let data = bundle.data;
-
-        if (error) {
-          const retry = await supabase
-            .from("cartoes")
-            .select("*")
-            .eq("user_id", user.id);
-          if (retry.error) {
-            console.error(error, retry.error);
-            setCartoes([]);
-            return;
-          }
-          data = retry.data;
-        }
-
-        const rows = (data ?? []) as Record<string, unknown>[];
-        const lista = rows.map(mapCartaoRow);
-        setCartoes(lista);
-
-        // Fatura aberta: só leitura dos lançamentos feitos nos cartões (desde 2 meses atrás).
-        if (lista.length > 0) {
+        // Fatura estimada (fallback sem banco): lançamentos feitos nos cartões (desde 2 meses atrás).
+        if (dados.cartoes.length > 0) {
+          const {
+            data: { user },
+          } = await supabase.auth.getUser();
+          if (!user || cancelado) return;
           const hoje = hojeSemHora();
           const desde = isoData(new Date(hoje.getFullYear(), hoje.getMonth() - 2, 1));
           const lanc = await supabase
@@ -420,6 +607,7 @@ export function CartoesScreen() {
             .eq("tipo", "despesa")
             .like("conta_cartao", "Cartão %")
             .gte("data", desde);
+          if (cancelado) return;
           if (lanc.error) {
             console.error(lanc.error);
           } else {
@@ -432,12 +620,17 @@ export function CartoesScreen() {
             );
           }
         }
+      } catch (err) {
+        console.error(err);
       } finally {
-        setIsLoading(false);
+        if (!cancelado) setCarregado(true);
       }
     }
 
     fetchCartoes();
+    return () => {
+      cancelado = true;
+    };
   }, []);
 
   const cartoesOrdenados = useMemo(
@@ -448,12 +641,21 @@ export function CartoesScreen() {
     [cartoes],
   );
 
+  /** Conta do banco vinculada a cada cartão (por `contas.cartao_id`). */
+  const contaPorCartao = useMemo(() => {
+    const mapa = new Map<string, ContaCartaoBanco>();
+    for (const k of contas) if (k.cartaoId) mapa.set(k.cartaoId, k);
+    return mapa;
+  }, [contas]);
+
   const faturas = useMemo(() => {
     const hoje = hojeSemHora();
     const mapa = new Map<string, number>();
-    for (const c of cartoes) mapa.set(c.id, faturaDoCartao(c, gastos, hoje));
+    for (const c of cartoes) {
+      mapa.set(c.id, faturaExibida(c, contaPorCartao.get(c.id) ?? null, gastos, hoje));
+    }
     return mapa;
-  }, [cartoes, gastos]);
+  }, [cartoes, contaPorCartao, gastos]);
 
   const totalFaturas = useMemo(
     () => [...faturas.values()].reduce((acc, v) => acc + v, 0),
@@ -476,6 +678,7 @@ export function CartoesScreen() {
     setDiaFechamento("1");
     setDiaVencimento("10");
     setLimiteDigitos("");
+    setContaVinculo("");
     setErroForm(null);
   }
 
@@ -488,6 +691,7 @@ export function CartoesScreen() {
     setDiaFechamento("1");
     setDiaVencimento("10");
     setLimiteDigitos("");
+    setContaVinculo("");
     setErroForm(null);
   }, []);
 
@@ -497,10 +701,36 @@ export function CartoesScreen() {
     setDiaFechamento(String(cartao.diaFechamento));
     setDiaVencimento(String(cartao.diaVencimento));
     setLimiteDigitos(reaisToAmountDigits(cartao.limite));
+    setContaVinculo(contas.find((k) => k.cartaoId === cartao.id)?.id ?? "");
     setErroForm(null);
     setCartaoEditando(cartao.id);
     setIsModalOpen(true);
-  }, []);
+  }, [contas]);
+
+  /** Grava o vínculo cartão ↔ conta do banco (se mudou) e atualiza o estado local. */
+  const aplicarVinculo = useCallback(
+    async (cartaoId: string, contaId: string | null): Promise<string | null> => {
+      const atual = contas.find((k) => k.cartaoId === cartaoId)?.id ?? null;
+      if (atual === contaId) return null;
+      try {
+        await vincularContaAoCartao(cartaoId, contaId);
+      } catch (err) {
+        console.error("Erro Supabase:", err);
+        return "Cartão salvo, mas não foi possível vincular a conta do banco.";
+      }
+      setContas((prev) =>
+        prev.map((k) =>
+          k.id === contaId
+            ? { ...k, cartaoId }
+            : k.cartaoId === cartaoId
+              ? { ...k, cartaoId: null }
+              : k,
+        ),
+      );
+      return null;
+    },
+    [contas],
+  );
 
   // Trava o scroll da página e fecha com Esc enquanto o formulário está aberto.
   useEffect(() => {
@@ -592,6 +822,11 @@ export function CartoesScreen() {
             setCartoes((prev) =>
               prev.map((c) => (c.id === cartaoEditando ? mapped : c)),
             );
+            const erroVinculo = await aplicarVinculo(cartaoEditando, contaVinculo || null);
+            if (erroVinculo) {
+              setErroForm(erroVinculo);
+              return;
+            }
             fecharModal();
           }
           return;
@@ -622,6 +857,15 @@ export function CartoesScreen() {
           const novo = mapCartaoRow(inserted as Record<string, unknown>);
           setCartoes((prev) => [...prev, novo]);
           setSelecionadoId(novo.id);
+          if (contaVinculo) {
+            const erroVinculo = await aplicarVinculo(novo.id, contaVinculo);
+            if (erroVinculo) {
+              // O cartão já existe: passa a editar para permitir tentar o vínculo de novo.
+              setCartaoEditando(novo.id);
+              setErroForm(erroVinculo);
+              return;
+            }
+          }
           fecharModal();
         }
       } catch (err) {
@@ -639,22 +883,36 @@ export function CartoesScreen() {
       diaVencimento,
       limiteDigitos,
       cartaoEditando,
+      contaVinculo,
+      aplicarVinculo,
       fecharModal,
     ],
   );
 
-  const handleDelete = useCallback(async (id: string) => {
-    if (!window.confirm("Tem certeza que deseja excluir este cartão?")) {
-      return;
-    }
-    const { error } = await supabase.from("cartoes").delete().eq("id", id);
-    if (error) {
-      console.error(error);
-      window.alert(error.message ?? "Não foi possível excluir o cartão.");
-      return;
-    }
-    setCartoes((prev) => prev.filter((c) => c.id !== id));
-  }, []);
+  const handleDelete = useCallback(
+    async (id: string) => {
+      if (!window.confirm("Tem certeza que deseja excluir este cartão?")) {
+        return;
+      }
+      // Desfaz o vínculo com a conta do banco antes de excluir (a conta continua existindo).
+      if (contas.some((k) => k.cartaoId === id)) {
+        try {
+          await vincularContaAoCartao(id, null);
+        } catch (err) {
+          console.error(err);
+        }
+      }
+      const { error } = await supabase.from("cartoes").delete().eq("id", id);
+      if (error) {
+        console.error(error);
+        window.alert(error.message ?? "Não foi possível excluir o cartão.");
+        return;
+      }
+      setCartoes((prev) => prev.filter((c) => c.id !== id));
+      setContas((prev) => prev.map((k) => (k.cartaoId === id ? { ...k, cartaoId: null } : k)));
+    },
+    [contas],
+  );
 
   function abrirNovo() {
     resetForm();
@@ -718,6 +976,7 @@ export function CartoesScreen() {
                 key={c.id}
                 cartao={c}
                 fatura={faturas.get(c.id) ?? 0}
+                doBanco={contaPorCartao.get(c.id)?.saldo != null}
                 ativo={selecionado?.id === c.id}
                 onSelect={(el) => selecionar(c.id, el)}
               />
@@ -737,6 +996,11 @@ export function CartoesScreen() {
               key={selecionado.id}
               cartao={selecionado}
               fatura={faturas.get(selecionado.id) ?? 0}
+              conta={contaPorCartao.get(selecionado.id) ?? null}
+              faturasBanco={
+                faturasPorConta[contaPorCartao.get(selecionado.id)?.id ?? ""] ?? []
+              }
+              podeVincular={contas.length > 0}
               onEdit={handleEditar}
               onDelete={handleDelete}
             />
@@ -897,6 +1161,44 @@ export function CartoesScreen() {
                     <p className="text-[11px] text-texto-3">
                       Compras a partir do dia de fechamento entram na fatura seguinte.
                     </p>
+
+                    {contas.length > 0 ? (
+                      <div>
+                        <label htmlFor="cartao-conta-banco" className={rotuloCampo}>
+                          Conta do banco
+                        </label>
+                        <div className="relative">
+                          <select
+                            id="cartao-conta-banco"
+                            value={contaVinculo}
+                            onChange={(e) => setContaVinculo(e.target.value)}
+                            className={`${campoClasse} appearance-none pr-9`}
+                          >
+                            <option value="">Nenhuma</option>
+                            {contas.map((k) => {
+                              const outro =
+                                k.cartaoId && k.cartaoId !== cartaoEditando
+                                  ? cartoes.find((c) => c.id === k.cartaoId)
+                                  : undefined;
+                              return (
+                                <option key={k.id} value={k.id}>
+                                  {rotuloConta(k)}
+                                  {outro ? ` (em ${outro.nome || "outro cartão"})` : ""}
+                                </option>
+                              );
+                            })}
+                          </select>
+                          <ChevronDown
+                            className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-texto-3"
+                            aria-hidden
+                          />
+                        </div>
+                        <p className="mt-1 text-[11px] text-texto-3">
+                          Com uma conta vinculada, fatura, limite e vencimento vêm do banco a cada
+                          sincronização.
+                        </p>
+                      </div>
+                    ) : null}
                   </div>
 
                   <div className="flex shrink-0 gap-2 border-t border-borda px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
