@@ -7,6 +7,7 @@ import {
   listarContasDoItem,
   listarTransacoes,
   obterItem,
+  pedirAtualizacao,
   pluggyConfigurado,
   pluggyItemIds,
   type PluggyConta,
@@ -61,6 +62,28 @@ export async function GET(request: Request) {
   const auth = await autenticarRequisicao(request);
   if (auth instanceof Response) return auth;
   return Response.json({ disponivel: pluggyConfigurado() && auth.permitido });
+}
+
+/** Pede ao banco uma atualização imediata (quando a Pluggy permitir). */
+export async function PUT(request: Request) {
+  const auth = await autenticarRequisicao(request);
+  if (auth instanceof Response) return auth;
+  if (!pluggyConfigurado() || !auth.permitido) {
+    return Response.json({ erro: "Conexão com o banco indisponível." }, { status: 403 });
+  }
+  const apiKey = await autenticar();
+  const resultados = await Promise.all(
+    pluggyItemIds().map(async (itemId) => {
+      try {
+        const item = await pedirAtualizacao(apiKey, itemId);
+        return { ok: true, status: item.status, proxima: item.nextAutoSyncAt };
+      } catch (e) {
+        console.error("[open-finance] atualização manual", e);
+        return { ok: false, erro: e instanceof Error ? e.message.slice(0, 300) : "erro" };
+      }
+    }),
+  );
+  return Response.json({ resultados });
 }
 
 export async function POST(request: Request) {

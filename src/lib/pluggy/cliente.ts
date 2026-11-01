@@ -94,6 +94,21 @@ export async function obterItem(apiKey: string, itemId: string): Promise<PluggyI
   return chamar<PluggyItem>(`/items/${encodeURIComponent(itemId)}`, apiKey);
 }
 
+/**
+ * Pede à Pluggy para buscar dados novos no banco agora (PATCH /items/{id}).
+ * Pela documentação, conexões do Meu Pluggy podem recusar; quem chama trata o erro.
+ */
+export async function pedirAtualizacao(apiKey: string, itemId: string): Promise<PluggyItem> {
+  const res = await fetch(`${BASE_URL}/items/${encodeURIComponent(itemId)}`, {
+    method: "PATCH",
+    headers: { "X-API-KEY": apiKey, "Content-Type": "application/json" },
+    body: "{}",
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Pluggy PATCH /items: HTTP ${res.status} ${await res.text()}`);
+  return (await res.json()) as PluggyItem;
+}
+
 export async function listarContasDoItem(
   apiKey: string,
   itemId: string,
