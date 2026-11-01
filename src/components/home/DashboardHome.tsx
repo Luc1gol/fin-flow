@@ -3,28 +3,30 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
-  AlertTriangle,
   ArrowDownLeft,
   ArrowUpRight,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  CreditCard,
   Eye,
   EyeOff,
   Inbox,
+  Repeat,
+  Target,
   UserRound,
+  type LucideIcon,
 } from "lucide-react";
 import { useDashboardPeriod } from "@/components/layout/dashboard-period-context";
 import { ITENS_NAV_EXTRAS } from "@/components/layout/BottomNav";
-import { CartaoPatrimonioInicio } from "@/components/patrimonio/CartaoPatrimonioInicio";
 import { CartaoResumoInicio } from "@/components/resumo/CartaoResumoInicio";
-import { Card, Chip, LinhaLista, Secao, Valor } from "@/components/ui/base";
-import { carregarResumoInicio, type MovimentoResumo, type ResumoInicio } from "@/lib/dados/inicio";
+import { Card, LinhaLista, Secao, Valor } from "@/components/ui/base";
+import { IconeCategoria } from "@/components/ui/IconeCategoria";
+import { carregarResumoInicio, type ResumoInicio } from "@/lib/dados/inicio";
 import { carregarPainelOrcamento, statusDoItem, type PainelOrcamento } from "@/lib/dados/orcamentos";
 import { carregarContasFixas, type PainelContasFixas } from "@/lib/dados/recorrencias";
 import { carregarProjecao, type Projecao } from "@/lib/dados/projecao";
 import { formatBRL } from "@/lib/format-currency";
-import { CORES_CATEGORIA } from "@/lib/icone-categoria";
-import { IconeCategoria } from "@/components/ui/IconeCategoria";
 
 const MESES = [
   "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
@@ -32,30 +34,125 @@ const MESES = [
 ];
 
 const CHAVE_OCULTAR = "finflow:ocultar-valores";
-const MAX_FATIAS = 5;
+const MOVIMENTOS_NO_INICIO = 5;
 
-type Fatia = { nome: string; valor: number; pct: number; cor: string };
+type Aviso = {
+  id: string;
+  href: string;
+  texto: string;
+  detalhe?: string;
+  Icone: LucideIcon;
+  /** "alerta" pede atenção; "urgente" é problema (atrasado/estourado). */
+  nivel: "alerta" | "urgente";
+};
 
-/** Agrupa por categoria, mantém as maiores e junta o resto em "Outros". */
-function fatiasPorCategoria(movs: MovimentoResumo[], tipo: "despesa" | "receita"): Fatia[] {
-  const soma = new Map<string, number>();
-  for (const m of movs) {
-    if (m.tipo !== tipo) continue;
-    const k = m.categoria?.trim() || "Sem categoria";
-    soma.set(k, (soma.get(k) ?? 0) + m.valor);
+function lista(nomes: string[]): string {
+  if (nomes.length <= 1) return nomes[0] ?? "";
+  return `${nomes.slice(0, -1).join(", ")} e ${nomes[nomes.length - 1]}`;
+}
+
+/**
+ * Junta tudo o que pede uma ação num lugar só. Só entra o que é acionável:
+ * revisar, fatura perto do vencimento, contas fixas atrasadas/vencendo e orçamento apertado.
+ */
+function montarAvisos(
+  resumo: ResumoInicio | undefined,
+  orcamento: PainelOrcamento | null,
+  fixas: PainelContasFixas | null,
+  mesAtual: boolean,
+  oculto: boolean,
+): Aviso[] {
+  const avisos: Aviso[] = [];
+  const valor = (v: number) => (oculto ? "R$ ••••" : formatBRL(v));
+  if (!resumo) return avisos;
+
+  if (resumo.pendentesRevisao > 0) {
+    avisos.push({
+      id: "revisar",
+      href: "/importar",
+      texto: `${resumo.pendentesRevisao} ${resumo.pendentesRevisao === 1 ? "transação" : "transações"} para revisar`,
+      Icone: Inbox,
+      nivel: "alerta",
+    });
   }
-  const total = [...soma.values()].reduce((a, b) => a + b, 0);
-  if (total <= 0) return [];
-  const ordenadas = [...soma.entries()].sort((a, b) => b[1] - a[1]);
-  const principais = ordenadas.slice(0, MAX_FATIAS);
-  const resto = ordenadas.slice(MAX_FATIAS).reduce((a, [, v]) => a + v, 0);
-  if (resto > 0) principais.push(["Outros", resto]);
-  return principais.map(([nome, valor], i) => ({
-    nome,
-    valor,
-    pct: Math.round((valor / total) * 100),
-    cor: CORES_CATEGORIA[Math.min(i, CORES_CATEGORIA.length - 1)]!,
-  }));
+  if (!mesAtual) return avisos;
+
+  if (resumo.cartaoVencendo) {
+    const { nome, dias } = resumo.cartaoVencendo;
+    avisos.push({
+      id: "fatura",
+      href: "/cartoes",
+      texto: `Fatura do ${nome} ${dias === 0 ? "vence hoje" : `vence em ${dias} ${dias === 1 ? "dia" : "dias"}`}`,
+      Icone: CreditCard,
+      nivel: dias <= 1 ? "urgente" : "alerta",
+    });
+  }
+
+  if (fixas) {
+    const despesas = fixas.contas.filter((c) => c.recorrencia.tipo === "despesa" && c.situacao !== "paga");
+    const atrasadas = despesas.filter((c) => c.situacao === "atrasada");
+    const hoje = new Date();
+    const emBreve = despesas.filter((c) => {
+      if (c.situacao !== "a_vencer") return false;
+      const dias = Math.round(
+        (new Date(`${c.vencimento}T12:00:00`).getTime() - new Date(hoje.toDateString()).getTime()) / 86_400_000,
+      );
+      return dias <= 3;
+    });
+    if (atrasadas.length > 0) {
+      avisos.push({
+        id: "fixas-atrasadas",
+        href: "/recorrencias",
+        texto: `${lista(atrasadas.map((c) => c.recorrencia.descricao))} ${atrasadas.length === 1 ? "está atrasada" : "estão atrasadas"}`,
+        detalhe: valor(atrasadas.reduce((a, c) => a + c.recorrencia.valor, 0)),
+        Icone: Repeat,
+        nivel: "urgente",
+      });
+    } else if (emBreve.length > 0) {
+      avisos.push({
+        id: "fixas-em-breve",
+        href: "/recorrencias",
+        texto: `${lista(emBreve.map((c) => c.recorrencia.descricao))} ${emBreve.length === 1 ? "vence" : "vencem"} nos próximos dias`,
+        detalhe: valor(emBreve.reduce((a, c) => a + c.recorrencia.valor, 0)),
+        Icone: Repeat,
+        nivel: "alerta",
+      });
+    }
+  }
+
+  if (orcamento) {
+    const comLimite = orcamento.itens.filter((i): i is typeof i & { limite: number } => i.limite != null);
+    const estouradas = comLimite.filter((i) => statusDoItem(i.gasto, i.limite) === "estourado");
+    const atencao = comLimite.filter((i) => statusDoItem(i.gasto, i.limite) === "atencao");
+    if (estouradas.length > 0) {
+      avisos.push({
+        id: "orc-estourado",
+        href: "/orcamentos",
+        texto: `${lista(estouradas.map((i) => i.categoria))} ${estouradas.length === 1 ? "passou" : "passaram"} do orçamento`,
+        Icone: Target,
+        nivel: "urgente",
+      });
+    } else if (atencao.length > 0) {
+      avisos.push({
+        id: "orc-atencao",
+        href: "/orcamentos",
+        texto: `${lista(atencao.map((i) => i.categoria))} ${atencao.length === 1 ? "está" : "estão"} perto do limite`,
+        Icone: Target,
+        nivel: "alerta",
+      });
+    }
+  }
+  return avisos;
+}
+
+/** "▲ 12% vs 1–15 de set": compara sempre o mesmo pedaço do mês anterior. */
+function Variacao({ pct, rotulo, visivel }: { pct: number | null; rotulo: string; visivel: boolean }) {
+  if (pct == null || !visivel) return null;
+  return (
+    <p className="mt-0.5 text-[11px] text-texto-3">
+      {pct === 0 ? "igual" : `${pct > 0 ? "▲" : "▼"} ${Math.abs(pct)}%`} {rotulo}
+    </p>
+  );
 }
 
 /** Atalhos para as telas que não cabem na barra de baixo (no computador ficam no menu lateral). */
@@ -77,124 +174,33 @@ function Atalhos() {
   );
 }
 
-/** Linha "Contas fixas": quantas faltam pagar no mês e quanto. */
-function ResumoContasFixas({
-  painel,
-  oculto,
-  carregando,
-}: {
-  painel: PainelContasFixas | null;
-  oculto: boolean;
-  carregando: boolean;
-}) {
-  if (carregando || !painel) return null;
-  const pendentes = painel.contas.filter(
-    (c) => c.recorrencia.tipo === "despesa" && c.situacao !== "paga",
-  );
-  const atrasadas = pendentes.filter((c) => c.situacao === "atrasada").length;
-  const total = pendentes.reduce((a, c) => a + c.recorrencia.valor, 0);
-  let texto: string;
-  if (painel.contas.length === 0) {
-    texto =
-      painel.sugestoes.length > 0
-        ? `Encontramos ${painel.sugestoes.length} possíveis contas fixas`
-        : "Cadastre suas contas fixas";
-  } else if (pendentes.length === 0) {
-    texto = "Contas fixas do mês em dia";
-  } else {
-    texto = `${pendentes.length} ${pendentes.length === 1 ? "conta fixa" : "contas fixas"} a pagar · ${
-      oculto ? "R$ ••••" : formatBRL(total)
-    }`;
-  }
-  return (
-    <Link
-      href="/recorrencias"
-      className={`vidro-suave flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm ${
-        atrasadas > 0 ? "!border-negativo/25 text-negativo" : "text-texto-2"
-      }`}
-    >
-      <span className="flex-1">
-        {texto}
-        {atrasadas > 0 ? ` · ${atrasadas} atrasada${atrasadas > 1 ? "s" : ""}` : ""}
-      </span>
-      <ChevronRight className="h-4 w-4" aria-hidden />
-    </Link>
-  );
-}
-
-/** Cartão "Orçamento do mês": total planejado e as categorias mais apertadas. */
-function ResumoOrcamento({
-  painel,
-  oculto,
-  carregando,
-}: {
-  painel: PainelOrcamento | null;
-  oculto: boolean;
-  carregando: boolean;
-}) {
-  if (carregando || !painel) return null;
-  const comLimite = painel.itens.filter(
-    (i): i is typeof i & { limite: number } => i.limite != null,
-  );
-  if (comLimite.length === 0) {
+function PainelAvisos({ avisos, carregando }: { avisos: Aviso[]; carregando: boolean }) {
+  if (carregando) return <div className="h-12 animate-pulse rounded-2xl bg-white/[0.04]" />;
+  if (avisos.length === 0) {
     return (
-      <Link href="/orcamentos" className="vidro-suave flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-texto-2">
-        <span className="flex-1">Defina quanto quer gastar por categoria</span>
-        <ChevronRight className="h-4 w-4" aria-hidden />
-      </Link>
+      <p className="flex items-center gap-2 px-1 text-xs text-texto-3">
+        <CheckCircle2 className="h-4 w-4 text-positivo" aria-hidden />
+        Tudo em dia. Nada pedindo a sua atenção.
+      </p>
     );
   }
-  const gasto = comLimite.reduce((a, i) => a + i.gasto, 0);
-  const limite = comLimite.reduce((a, i) => a + i.limite, 0);
-  const status = statusDoItem(gasto, limite);
-  const apertadas = comLimite
-    .filter((i) => statusDoItem(i.gasto, i.limite) !== "ok")
-    .sort((a, b) => b.gasto / b.limite - a.gasto / a.limite)
-    .slice(0, 2);
-  const cor = status === "estourado" ? "bg-negativo" : status === "atencao" ? "bg-alerta" : "bg-marca";
   return (
-    <Secao titulo="Orçamento do mês" acao={{ label: "Ver todos", href: "/orcamentos" }}>
-      <Card className="p-3">
-        <div className="flex items-baseline justify-between text-xs">
-          <span className="text-texto-2">
-            {oculto ? "R$ ••••" : formatBRL(gasto)} de {oculto ? "R$ ••••" : formatBRL(limite)}
+    <Card className="divide-y divide-borda px-3">
+      {avisos.map(({ id, href, texto, detalhe, Icone, nivel }) => (
+        <Link key={id} href={href} className="flex items-center gap-3 py-2.5 text-sm active:opacity-80">
+          <span
+            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
+              nivel === "urgente" ? "bg-negativo/15 text-negativo" : "bg-alerta/15 text-alerta"
+            }`}
+          >
+            <Icone className="h-4 w-4" aria-hidden />
           </span>
-          <span className="text-texto-3">{Math.round((gasto / limite) * 100)}%</span>
-        </div>
-        <div className="relative mt-2 h-1.5 rounded-full bg-white/[0.07]">
-          <div className={`h-full rounded-full ${cor}`} style={{ width: `${Math.min(100, (gasto / limite) * 100)}%` }} />
-          {painel.fracaoMes > 0 && painel.fracaoMes < 1 ? (
-            <div className="absolute -top-1 h-3.5 w-0.5 rounded-full bg-texto/60" style={{ left: `${painel.fracaoMes * 100}%` }} />
-          ) : null}
-        </div>
-        {apertadas.length > 0 ? (
-          <ul className="mt-2.5 flex flex-col gap-1">
-            {apertadas.map((i) => (
-              <li key={i.categoria} className="flex items-center gap-2 text-xs">
-                <AlertTriangle
-                  className={`h-3.5 w-3.5 ${i.gasto > i.limite ? "text-negativo" : "text-alerta"}`}
-                  aria-hidden
-                />
-                <span className="flex-1 text-texto-2">{i.categoria}</span>
-                <span className={i.gasto > i.limite ? "text-negativo" : "text-alerta"}>
-                  {Math.round((i.gasto / i.limite) * 100)}%
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-      </Card>
-    </Secao>
-  );
-}
-
-/** "▲ 12% vs 1–15 de set": compara sempre o mesmo pedaço do mês anterior. */
-function Variacao({ pct, rotulo, visivel }: { pct: number | null; rotulo: string; visivel: boolean }) {
-  if (pct == null || !visivel) return null;
-  return (
-    <p className="mt-0.5 text-[11px] text-texto-3">
-      {pct === 0 ? "igual" : `${pct > 0 ? "▲" : "▼"} ${Math.abs(pct)}%`} {rotulo}
-    </p>
+          <span className="min-w-0 flex-1 text-texto">{texto}</span>
+          {detalhe ? <span className="shrink-0 text-xs text-texto-2">{detalhe}</span> : null}
+          <ChevronRight className="h-4 w-4 shrink-0 text-texto-3" aria-hidden />
+        </Link>
+      ))}
+    </Card>
   );
 }
 
@@ -221,25 +227,20 @@ export function DashboardHome() {
       return false;
     }
   });
-  const [tipoGrafico, setTipoGrafico] = useState<"despesa" | "receita">("despesa");
 
   useEffect(() => {
     let cancelado = false;
+    // Orçamento, contas fixas e projeção são extras: se falharem, o Início continua funcionando.
+    const extra = <T,>(p: Promise<T>) =>
+      p.catch((e) => {
+        console.error(e);
+        return null;
+      });
     Promise.all([
       carregarResumoInicio(period.year, period.monthIndex),
-      // O orçamento é um extra: se falhar, o Início continua funcionando.
-      carregarPainelOrcamento(period.year, period.monthIndex).catch((e) => {
-        console.error(e);
-        return null;
-      }),
-      carregarContasFixas(period.year, period.monthIndex).catch((e) => {
-        console.error(e);
-        return null;
-      }),
-      carregarProjecao().catch((e) => {
-        console.error(e);
-        return null;
-      }),
+      extra(carregarPainelOrcamento(period.year, period.monthIndex)),
+      extra(carregarContasFixas(period.year, period.monthIndex)),
+      extra(carregarProjecao()),
     ])
       .then(([resumo, orcamento, contasFixas, projecao]) => {
         if (!cancelado) {
@@ -275,22 +276,20 @@ export function DashboardHome() {
 
   const hoje = new Date();
   const mesAtual = period.year === hoje.getFullYear() && period.monthIndex === hoje.getMonth();
-  const fatias = useMemo(
-    () => fatiasPorCategoria(resumo?.movimentos ?? [], tipoGrafico),
-    [resumo, tipoGrafico],
-  );
   const resultado = (resumo?.entradas ?? 0) - (resumo?.saidas ?? 0);
   const comp = resumo?.comparacao;
   const variacao = (par: { atual: number; anterior: number } | undefined) =>
     par && par.anterior > 0 ? Math.round(((par.atual - par.anterior) / par.anterior) * 100) : null;
-  const variacaoEntradas = variacao(comp?.entradas);
-  const variacaoSaidas = variacao(comp?.saidas);
   // Ex.: "vs 1–15 de set" no mês atual; "vs setembro" em meses passados.
   const rotuloComparacao = comp
     ? comp.ateDia != null
       ? `vs 1–${comp.ateDia} de ${MESES[comp.mesAnterior0]!.slice(0, 3).toLowerCase()}`
       : `vs ${MESES[comp.mesAnterior0]!.toLowerCase()}`
     : "";
+  const avisos = useMemo(
+    () => montarAvisos(resumo, dados?.orcamento ?? null, dados?.contasFixas ?? null, mesAtual, oculto),
+    [resumo, dados, mesAtual, oculto],
+  );
 
   return (
     <div className="flex flex-col gap-5 pb-6">
@@ -335,11 +334,7 @@ export function DashboardHome() {
           >
             {oculto ? <EyeOff className="h-[18px] w-[18px]" /> : <Eye className="h-[18px] w-[18px]" />}
           </button>
-          <Link
-            href="/perfil"
-            aria-label="Perfil"
-            className="vidro flex h-9 w-9 items-center justify-center rounded-full text-texto-2"
-          >
+          <Link href="/perfil" aria-label="Perfil" className="vidro flex h-9 w-9 items-center justify-center rounded-full text-texto-2">
             <UserRound className="h-[18px] w-[18px]" aria-hidden />
           </Link>
         </div>
@@ -349,32 +344,20 @@ export function DashboardHome() {
 
       <CartaoResumoInicio oculto={oculto} />
 
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] lg:items-start">
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:items-start">
         <div className="flex flex-col gap-5">
-          {/* Saldo e resultado do mês */}
+          {/* 1. Saldo e previsão */}
           <section>
-            <p className="text-xs text-texto-3">
-              {resumo?.saldoContas ? "Saldo em contas" : "Resultado do mês"}
-            </p>
+            <p className="text-xs text-texto-3">{resumo?.saldoContas ? "Saldo em contas" : "Resultado do mês"}</p>
             {carregando ? (
-              <div className="mt-1 h-8 w-40 animate-pulse rounded-lg bg-superficie-2" />
+              <div className="mt-1 h-9 w-44 animate-pulse rounded-lg bg-white/[0.06]" />
             ) : (
-              <p className="mt-0.5 text-[28px] font-semibold leading-tight text-texto">
+              <p className="mt-0.5 text-[32px] font-semibold leading-tight tracking-tight text-texto">
                 <Valor valor={resumo?.saldoContas?.valor ?? resultado} oculto={oculto} />
               </p>
             )}
-            {resumo?.saldoContas && mesAtual ? (
-              <p className="mt-0.5 text-xs text-texto-3">
-                Resultado do mês:{" "}
-                <Valor valor={resultado} sinal colorir oculto={oculto} />
-              </p>
-            ) : null}
-
             {mesAtual && dados?.projecao && !carregando ? (
-              <Link
-                href="/projecao"
-                className="mt-1.5 inline-flex items-center gap-1 text-xs text-texto-2 hover:text-texto"
-              >
+              <Link href="/projecao" className="mt-1 inline-flex items-center gap-1 text-xs text-texto-2 hover:text-texto">
                 Previsto para {dados.projecao.fimMes.slice(8, 10)}/{dados.projecao.fimMes.slice(5, 7)}:{" "}
                 <Valor
                   valor={dados.projecao.saldoComDiaADia}
@@ -385,146 +368,74 @@ export function DashboardHome() {
               </Link>
             ) : null}
 
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <Card className="px-3 py-2.5">
-                <p className="flex items-center gap-1 text-xs text-texto-3">
-                  <ArrowDownLeft className="h-3.5 w-3.5 text-positivo" aria-hidden /> Entradas
-                </p>
-                <p className="mt-0.5 text-[15px] font-semibold text-positivo">
-                  {carregando ? "…" : <Valor valor={resumo?.entradas ?? 0} oculto={oculto} />}
-                </p>
-                <Variacao pct={variacaoEntradas} rotulo={rotuloComparacao} visivel={!oculto && !carregando} />
-              </Card>
-              <Card className="px-3 py-2.5">
-                <p className="flex items-center gap-1 text-xs text-texto-3">
-                  <ArrowUpRight className="h-3.5 w-3.5 text-negativo" aria-hidden /> Saídas
-                </p>
-                <p className="mt-0.5 text-[15px] font-semibold text-negativo">
-                  {carregando ? "…" : <Valor valor={resumo?.saidas ?? 0} oculto={oculto} />}
-                </p>
-                <Variacao pct={variacaoSaidas} rotulo={rotuloComparacao} visivel={!oculto && !carregando} />
-              </Card>
+            {/* 2. Entradas e saídas do mês */}
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <Link href="/relatorios" className="block">
+                <Card className="px-3 py-2.5">
+                  <p className="flex items-center gap-1 text-xs text-texto-3">
+                    <ArrowDownLeft className="h-3.5 w-3.5 text-positivo" aria-hidden /> Entradas
+                  </p>
+                  <p className="mt-0.5 text-[15px] font-semibold text-positivo">
+                    {carregando ? "…" : <Valor valor={resumo?.entradas ?? 0} oculto={oculto} />}
+                  </p>
+                  <Variacao pct={variacao(comp?.entradas)} rotulo={rotuloComparacao} visivel={!oculto && !carregando} />
+                </Card>
+              </Link>
+              <Link href="/relatorios?aba=para-onde-vai" className="block">
+                <Card className="px-3 py-2.5">
+                  <p className="flex items-center gap-1 text-xs text-texto-3">
+                    <ArrowUpRight className="h-3.5 w-3.5 text-negativo" aria-hidden /> Saídas
+                  </p>
+                  <p className="mt-0.5 text-[15px] font-semibold text-negativo">
+                    {carregando ? "…" : <Valor valor={resumo?.saidas ?? 0} oculto={oculto} />}
+                  </p>
+                  <Variacao pct={variacao(comp?.saidas)} rotulo={rotuloComparacao} visivel={!oculto && !carregando} />
+                </Card>
+              </Link>
             </div>
           </section>
 
-          {/* Avisos */}
-          {resumo && resumo.pendentesRevisao > 0 ? (
-            <Link
-              href="/importar"
-              className="vidro-suave flex items-center gap-3 rounded-xl !border-alerta/25 !bg-alerta/10 px-3 py-2.5 text-sm text-alerta"
-            >
-              <Inbox className="h-[18px] w-[18px] shrink-0" aria-hidden />
-              <span className="flex-1">
-                {resumo.pendentesRevisao}{" "}
-                {resumo.pendentesRevisao === 1 ? "transação para revisar" : "transações para revisar"}
-              </span>
-              <ChevronRight className="h-4 w-4" aria-hidden />
-            </Link>
-          ) : null}
-          {resumo?.cartaoVencendo ? (
-            <Link
-              href="/cartoes"
-              className="vidro-suave flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-texto-2"
-            >
-              <AlertTriangle className="h-[18px] w-[18px] shrink-0 text-alerta" aria-hidden />
-              <span className="flex-1">
-                Fatura do {resumo.cartaoVencendo.nome}{" "}
-                {resumo.cartaoVencendo.dias === 0
-                  ? "vence hoje"
-                  : `vence em ${resumo.cartaoVencendo.dias} ${resumo.cartaoVencendo.dias === 1 ? "dia" : "dias"}`}
-              </span>
-              <ChevronRight className="h-4 w-4" aria-hidden />
-            </Link>
-          ) : null}
+          {/* 3. Avisos que pedem ação */}
+          <PainelAvisos avisos={avisos} carregando={carregando} />
 
-          <ResumoOrcamento painel={dados?.orcamento ?? null} oculto={oculto} carregando={carregando} />
-          <ResumoContasFixas painel={dados?.contasFixas ?? null} oculto={oculto} carregando={carregando} />
-
-          {/* Categorias */}
-          <Secao titulo="Por categoria" acao={{ label: "Ver análise", href: "/relatorios" }}>
-            <Card className="p-3">
-              <div className="mb-3 flex gap-1.5">
-                <Chip ativo={tipoGrafico === "despesa"} onClick={() => setTipoGrafico("despesa")}>
-                  Despesas
-                </Chip>
-                <Chip ativo={tipoGrafico === "receita"} onClick={() => setTipoGrafico("receita")}>
-                  Receitas
-                </Chip>
-              </div>
-              {carregando ? (
-                <div className="h-2 animate-pulse rounded-full bg-superficie-2" />
-              ) : fatias.length === 0 ? (
-                <p className="py-2 text-center text-xs text-texto-3">
-                  Nenhuma {tipoGrafico} neste mês.
-                </p>
-              ) : (
-                <>
-                  <div className="flex h-2 gap-0.5 overflow-hidden rounded-full">
-                    {fatias.map((f) => (
-                      <div key={f.nome} style={{ flex: f.valor, background: f.cor }} />
-                    ))}
-                  </div>
-                  <ul className="mt-3 flex flex-col gap-2">
-                    {fatias.map((f) => (
-                      <li key={f.nome} className="flex items-center gap-2 text-sm">
-                        <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: f.cor }} />
-                        <span className="min-w-0 flex-1 truncate text-texto-2">{f.nome}</span>
-                        <span className="w-9 text-right text-xs text-texto-3">{f.pct}%</span>
-                        <Valor valor={f.valor} oculto={oculto} className="w-24 text-right text-texto" />
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              )}
-            </Card>
-          </Secao>
+          <Atalhos />
         </div>
 
-        <div className="flex flex-col gap-5">
-        <CartaoPatrimonioInicio oculto={oculto} />
-        <Atalhos />
-        {/* Últimas movimentações */}
-        <Secao titulo="Últimas movimentações" acao={{ label: "Extrato", href: "/extrato" }}>
+        {/* 4. Últimas movimentações */}
+        <Secao titulo="Últimas movimentações" acao={{ label: "Ver extrato", href: "/extrato" }}>
           <Card className="px-3">
             {carregando ? (
               <div className="flex flex-col gap-3 py-3">
                 {[0, 1, 2, 3].map((i) => (
-                  <div key={i} className="h-9 animate-pulse rounded-lg bg-superficie-2" />
+                  <div key={i} className="h-9 animate-pulse rounded-lg bg-white/[0.06]" />
                 ))}
               </div>
             ) : resumo && resumo.movimentos.length > 0 ? (
               <ul className="divide-y divide-borda">
-                {resumo.movimentos.slice(0, 8).map((m) => {
-                  const valorExibido =
-                    m.tipo === "despesa" ? -m.valor : m.tipo === "receita" ? m.valor : m.valor;
-                  return (
-                    <li key={m.id}>
-                      <LinhaLista
-                        icone={<IconeCategoria categoria={m.categoria} transferencia={m.tipo === "transferencia"} />}
-                        titulo={m.descricao || "Sem descrição"}
-                        subtitulo={[
-                          m.tipo === "transferencia" ? "Transferência" : m.categoria || "Sem categoria",
-                          m.meio,
-                          dataCurta(m.data),
-                        ]
-                          .filter(Boolean)
-                          .join(" · ")}
-                        direita={
-                          m.tipo === "transferencia" ? (
-                            <Valor valor={Math.abs(m.valor)} oculto={oculto} className="text-texto-3" />
-                          ) : (
-                            <Valor
-                              valor={valorExibido}
-                              sinal={m.tipo === "receita"}
-                              colorir={m.tipo === "receita"}
-                              oculto={oculto}
-                            />
-                          )
-                        }
-                      />
-                    </li>
-                  );
-                })}
+                {resumo.movimentos.slice(0, MOVIMENTOS_NO_INICIO).map((m) => (
+                  <li key={m.id}>
+                    <LinhaLista
+                      icone={<IconeCategoria categoria={m.categoria} transferencia={m.tipo === "transferencia"} />}
+                      titulo={m.descricao || "Sem descrição"}
+                      subtitulo={[
+                        m.tipo === "transferencia" ? "Transferência" : m.categoria || "Sem categoria",
+                        dataCurta(m.data),
+                      ].join(" · ")}
+                      direita={
+                        m.tipo === "transferencia" ? (
+                          <Valor valor={Math.abs(m.valor)} oculto={oculto} className="text-texto-3" />
+                        ) : (
+                          <Valor
+                            valor={m.tipo === "despesa" ? -m.valor : m.valor}
+                            sinal={m.tipo === "receita"}
+                            colorir={m.tipo === "receita"}
+                            oculto={oculto}
+                          />
+                        )
+                      }
+                    />
+                  </li>
+                ))}
               </ul>
             ) : (
               <div className="py-6 text-center">
@@ -536,7 +447,6 @@ export function DashboardHome() {
             )}
           </Card>
         </Secao>
-        </div>
       </div>
     </div>
   );
