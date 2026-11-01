@@ -26,6 +26,7 @@ import {
   Receipt,
   Repeat,
   Store,
+  Users,
   Wallet,
 } from "lucide-react";
 import { TagsExtrasField } from "@/components/form/TagsExtrasField";
@@ -38,7 +39,14 @@ import {
   MAX_AMOUNT_DIGITS_LANCAMENTO,
   formatMaskedValorDisplay,
   parseAmountDigitsToReais,
+  reaisToAmountDigits,
 } from "@/lib/currency-input-mask";
+import {
+  dividirAReceberEmParcelas,
+  listarPessoasDivididas,
+  metadeEmCentavos,
+  validarDivisao,
+} from "@/lib/dados/divididos";
 import { formatBRL } from "@/lib/format-currency";
 import {
   mergePendingTagInputIntoSeleccionadas,
@@ -63,6 +71,7 @@ const PAYMENT_OPTIONS: { id: PaymentMethod; label: string }[] = [
 ];
 
 const DATALIST_CATEGORIAS_LANCAR_ID = "lista-categorias-lancar";
+const DATALIST_PESSOAS_LANCAR_ID = "lista-pessoas-dividir-lancar";
 
 function todayIsoLocal(): string {
   const d = new Date();
@@ -132,6 +141,8 @@ type LancamentoInsertRow = {
   meio_pagamento: string;
   observacao: string | null;
   recorrencia_id?: string;
+  dividido_com?: string;
+  valor_a_receber?: number;
 };
 
 function buildLancamentoInsertRow(args: {
@@ -146,6 +157,8 @@ function buildLancamentoInsertRow(args: {
   meioPagamento: string;
   observacao: string | null;
   recorrenciaId?: string;
+  divididoCom?: string | null;
+  valorAReceber?: number | null;
 }): LancamentoInsertRow {
   const row: LancamentoInsertRow = {
     user_id: args.userId,
@@ -161,6 +174,10 @@ function buildLancamentoInsertRow(args: {
   };
   if (args.recorrenciaId) {
     row.recorrencia_id = args.recorrenciaId;
+  }
+  if (args.divididoCom && args.valorAReceber != null && args.valorAReceber > 0) {
+    row.dividido_com = args.divididoCom;
+    row.valor_a_receber = args.valorAReceber;
   }
   return row;
 }
@@ -204,6 +221,11 @@ export function LancarScreen() {
     [],
   );
   const [contaState, setContaState] = useState(CONTA_CORRENTE_LABEL);
+  /** "Dividir com": nome de quem deve parte da despesa. */
+  const [divididoCom, setDivididoCom] = useState("");
+  /** Dígitos (centavos) de quanto a pessoa deve; null = metade do valor (padrão). */
+  const [receberDigits, setReceberDigits] = useState<string | null>(null);
+  const [pessoasDivididas, setPessoasDivididas] = useState<string[]>([]);
 
   const showCardPicker =
     paymentMethod === "credito" || paymentMethod === "debito";
@@ -245,6 +267,18 @@ export function LancarScreen() {
       );
     }
     loadCartoesETags();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    listarPessoasDivididas()
+      .then((nomes) => {
+        if (!cancelled) setPessoasDivididas(nomes);
+      })
+      .catch((e) => console.error(e));
     return () => {
       cancelled = true;
     };
@@ -309,6 +343,10 @@ export function LancarScreen() {
     return valores[0] ?? null;
   }, [parcelas, parsedAmount]);
 
+  const receberDigitsEfetivo =
+    receberDigits ?? reaisToAmountDigits(metadeEmCentavos(parsedAmount));
+  const valorAReceber = parseAmountDigitsToReais(receberDigitsEfetivo);
+
   const semCartaoParaMeio =
     tipo === "despesa" && showCardPicker && cartoesUsuario.length === 0;
 
@@ -343,6 +381,8 @@ export function LancarScreen() {
     setDescription("");
     setLancamentoRecorrente(false);
     setTipo("despesa");
+    setDivididoCom("");
+    setReceberDigits(null);
   }
 
   async function handleConfirmarLancamento() {
@@ -378,6 +418,15 @@ export function LancarScreen() {
           );
           return;
         }
+      }
+
+      const divisao =
+        tipo === "despesa"
+          ? validarDivisao(divididoCom, valorAReceber, parsedAmount)
+          : ({ ok: true, divididoCom: null, valorAReceber: null } as const);
+      if (!divisao.ok) {
+        setSubmitError(divisao.erro);
+        return;
       }
 
       const {
@@ -453,6 +502,9 @@ export function LancarScreen() {
               meioPagamento: meioPagamentoDb,
               observacao: description.trim() || null,
               recorrenciaId: recId,
+              // Recorrente: a pessoa deve a mesma parte todo mês.
+              divididoCom: divisao.divididoCom,
+              valorAReceber: divisao.valorAReceber,
             }),
           );
         }
@@ -482,6 +534,8 @@ export function LancarScreen() {
             tagsExtras: tagsExtrasDb,
             meioPagamento: meioPagamentoDb,
               observacao: description.trim() || null,
+            divididoCom: divisao.divididoCom,
+            valorAReceber: divisao.valorAReceber,
           }),
         ]);
         if (insErr) throw insErr;
@@ -491,6 +545,11 @@ export function LancarScreen() {
           nParcelas,
         );
         const descBase = tituloOuLocal.trim();
+        // Parcelado: o valor a receber é dividido nas parcelas, como a despesa.
+        const receberPorParcela =
+          divisao.valorAReceber != null
+            ? dividirAReceberEmParcelas(divisao.valorAReceber, nParcelas)
+            : [];
         const lancamentosParcelados: LancamentoInsertRow[] = [];
         for (let i = 0; i < nParcelas; i++) {
           lancamentosParcelados.push(
@@ -505,6 +564,8 @@ export function LancarScreen() {
               tagsExtras: tagsExtrasDb,
               meioPagamento: meioPagamentoDb,
               observacao: description.trim() || null,
+              divididoCom: divisao.divididoCom,
+              valorAReceber: receberPorParcela[i] ?? null,
             }),
           );
         }
@@ -795,6 +856,70 @@ export function LancarScreen() {
                   </div>
                 </Linha>
               </>
+            ) : null}
+          </Card>
+        ) : null}
+
+        {tipo === "despesa" ? (
+          <Card className="divide-y divide-borda">
+            <Linha
+              icone={<Users className="h-4 w-4" aria-hidden />}
+              rotulo="Dividir com"
+              htmlFor="lanc-dividir-com"
+              dica={
+                divididoCom.trim()
+                  ? null
+                  : "Opcional. Quem te deve parte dessa despesa aparece em A receber."
+              }
+            >
+              <input
+                id="lanc-dividir-com"
+                list={DATALIST_PESSOAS_LANCAR_ID}
+                type="text"
+                value={divididoCom}
+                onChange={(e) => {
+                  setDivididoCom(e.target.value);
+                  setSubmitError(null);
+                }}
+                placeholder="Ninguém"
+                autoComplete="off"
+                className={controleLinha}
+              />
+              <datalist id={DATALIST_PESSOAS_LANCAR_ID}>
+                {pessoasDivididas.map((nome) => (
+                  <option key={nome} value={nome} />
+                ))}
+              </datalist>
+            </Linha>
+            {divididoCom.trim() ? (
+              <Linha
+                icone={<span className="text-[11px] font-semibold">R$</span>}
+                rotulo="Te deve"
+                htmlFor="lanc-valor-receber"
+                dica={
+                  isCredito && lancamentoRecorrente
+                    ? "Esse valor fica a receber em cada um dos 12 meses."
+                    : isCredito && parcelas > 1 && valorAReceber > 0
+                      ? `Dividido nas ${parcelas} parcelas: ${formatBRL(dividirAReceberEmParcelas(valorAReceber, parcelas)[0] ?? 0)} por mês.`
+                      : receberDigits == null
+                        ? "Metade do valor. Toque para mudar."
+                        : null
+                }
+              >
+                <input
+                  id="lanc-valor-receber"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  value={formatMaskedValorDisplay(receberDigitsEfetivo)}
+                  onChange={(e) => {
+                    const only = e.target.value.replace(/\D/g, "");
+                    setReceberDigits(only.slice(0, MAX_AMOUNT_DIGITS_LANCAMENTO));
+                    setSubmitError(null);
+                  }}
+                  className={`${controleLinha} valor`}
+                />
+              </Linha>
             ) : null}
           </Card>
         ) : null}

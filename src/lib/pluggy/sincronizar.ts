@@ -35,7 +35,7 @@ type ContaApp = {
 };
 
 export type ResultadoSincronizacao = {
-  contas: { nome: string; novas: number; duplicadas: number }[];
+  contas: { nome: string; novas: number; duplicadas: number; automaticas: number }[];
   bancoAtualizadoEm: string | null;
   proximaAtualizacao: string | null;
 };
@@ -271,7 +271,7 @@ export async function sincronizarBanco(
         .filter((t) => cartao || t.status === "POSTED")
         .map((t) => normalizarTransacao(t, contaPluggy));
 
-      const { novas, duplicadas } = await enfileirarTransacoes(db, {
+      const { novas, duplicadas, automaticas } = await enfileirarTransacoes(db, {
         contaId: conta.id,
         origem: "Open Finance",
         transacoes,
@@ -279,6 +279,7 @@ export async function sincronizarBanco(
         regras,
         cartaoCredito: cartao,
         ignorarIguaisJaNaFila: true,
+        autoConfirmar: true,
         userId,
       });
 
@@ -292,7 +293,7 @@ export async function sincronizarBanco(
         .eq("id", conta.id);
 
       if (cartao) await salvarDadosCartao(db, userId, apiKey, conta.id, contaPluggy);
-      resultado.push({ nome: conta.nome, novas, duplicadas });
+      resultado.push({ nome: conta.nome, novas, duplicadas, automaticas });
     }
     await salvarInvestimentos(db, userId, apiKey, itemId);
   }

@@ -1,17 +1,12 @@
 import { supabase } from "@/lib/supabase";
 import {
-  CONTA_CORRENTE_LABEL,
-  labelContaCartaoPersistido,
-} from "@/lib/conta-cartao-lancamento";
-import {
-  chaveTransacao,
   classificarTransacao,
   type MeioMovimento,
   type RegraUsuario,
   type TipoMovimento,
 } from "@/lib/importacao/classificar";
 import { enfileirarTransacoes } from "@/lib/importacao/fila";
-import { lancamentoCombina, listarRecorrenciasAtivas } from "@/lib/dados/recorrencias";
+import { criarLancamentosConfirmados } from "@/lib/importacao/confirmar";
 import type { OfxExtrato } from "@/lib/importacao/ofx";
 
 export type Conta = {
@@ -234,7 +229,7 @@ export async function sincronizarOpenFinance(): Promise<ResultadoSincronizacao> 
 }
 
 export type ResultadoSincronizacao = {
-  contas: { nome: string; novas: number; duplicadas: number }[];
+  contas: { nome: string; novas: number; duplicadas: number; automaticas: number }[];
   /** Última vez que o banco mandou dados novos para o Meu Pluggy. */
   bancoAtualizadoEm: string | null;
   proximaAtualizacao: string | null;
@@ -303,95 +298,12 @@ export async function buscarPossiveisDuplicados(
   return resultado;
 }
 
-const MEIO_PARA_COLUNA: Partial<Record<MeioMovimento, string>> = {
-  pix: "Pix",
-  debito: "Débito",
-  credito: "Crédito",
-};
 
 /** Cria os lançamentos, marca as transações como confirmadas e aprende regras. */
 export async function confirmarTransacoes(itens: TransacaoRevisada[]): Promise<void> {
   if (itens.length === 0) return;
   const user = await usuarioAtual();
-
-  // Compras de conta de cartão aparecem no app como "Cartão <nome>", igual ao lançamento manual.
-  const contaIds = [...new Set(itens.map((it) => it.transacao.conta_id))];
-  const { data: contasDb, error: errContas } = await supabase
-    .from("contas")
-    .select("id, nome, tipo, cartoes(nome)")
-    .in("id", contaIds);
-  if (errContas) throw errContas;
-  const rotuloPorConta = new Map<string, string>();
-  for (const c of contasDb ?? []) {
-    const cartao = c.cartoes as { nome?: string } | { nome?: string }[] | null;
-    const nomeCartao = Array.isArray(cartao) ? cartao[0]?.nome : cartao?.nome;
-    rotuloPorConta.set(
-      c.id,
-      c.tipo === "cartao_credito"
-        ? labelContaCartaoPersistido(nomeCartao ?? c.nome)
-        : CONTA_CORRENTE_LABEL,
-    );
-  }
-
-  const lancamentos = itens.map((it) => ({
-    id: crypto.randomUUID(),
-    user_id: user.id,
-    descricao: it.descricao.trim() || it.transacao.sugestao_descricao,
-    // Receitas e despesas usam valor positivo (padrão do app).
-    // Transferências guardam o sinal: negativo = saiu da conta.
-    valor:
-      it.tipo === "transferencia"
-        ? it.transacao.valor
-        : Math.abs(it.transacao.valor),
-    tipo: it.tipo,
-    data: it.transacao.data,
-    tag: it.categoria?.trim() || null,
-    conta_cartao: rotuloPorConta.get(it.transacao.conta_id) ?? CONTA_CORRENTE_LABEL,
-    meio_pagamento: it.transacao.sugestao_meio
-      ? (MEIO_PARA_COLUNA[it.transacao.sugestao_meio] ?? null)
-      : null,
-    conta_id: it.transacao.conta_id,
-    origem: "importacao",
-  }));
-
-  // Pagamento de uma conta fixa (ex.: aluguel via Pix) já fica ligado a ela.
-  const recorrencias = await listarRecorrenciasAtivas().catch(() => []);
-  const comRecorrencia = lancamentos.map((l) => ({
-    ...l,
-    recorrencia_id:
-      recorrencias.find((r) => lancamentoCombina(r, { descricao: l.descricao, tipo: l.tipo, valor: l.valor }))
-        ?.id ?? null,
-  }));
-
-  const { error } = await supabase.from("lancamentos").insert(comRecorrencia);
-  if (error) throw error;
-
-  await emLotes(itens, 10, async (it, i) => {
-    const { error: e } = await supabase
-      .from("transacoes_importadas")
-      .update({ status: "confirmada", lancamento_id: lancamentos[i]!.id })
-      .eq("id", it.transacao.id);
-    if (e) throw e;
-  });
-
-  const regras = new Map<string, Record<string, unknown>>();
-  for (const it of itens) {
-    const padrao = chaveTransacao(it.transacao.memo, it.transacao.valor);
-    if (!padrao) continue;
-    regras.set(padrao, {
-      user_id: user.id,
-      padrao,
-      tipo: it.tipo,
-      categoria: it.categoria?.trim() || null,
-      descricao: it.descricao.trim() || null,
-    });
-  }
-  if (regras.size > 0) {
-    const { error: errRegras } = await supabase
-      .from("regras_categorizacao")
-      .upsert([...regras.values()], { onConflict: "user_id,padrao" });
-    if (errRegras) console.error("Erro ao salvar regras:", errRegras);
-  }
+  await criarLancamentosConfirmados(supabase, user.id, itens, { aprender: true });
 }
 
 /** Ignora de uma vez tudo o que está pendente com data anterior a `data` (yyyy-mm-dd). */
@@ -415,15 +327,6 @@ export async function ignorarTransacoes(ids: string[]): Promise<void> {
   if (error) throw error;
 }
 
-async function emLotes<T>(
-  itens: T[],
-  tamanho: number,
-  fn: (item: T, indice: number) => Promise<void>,
-): Promise<void> {
-  for (let i = 0; i < itens.length; i += tamanho) {
-    await Promise.all(itens.slice(i, i + tamanho).map((it, j) => fn(it, i + j)));
-  }
-}
 
 function deslocarDias(iso: string, dias: number): string {
   const d = new Date(`${iso}T12:00:00`);

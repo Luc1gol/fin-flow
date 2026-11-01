@@ -89,7 +89,10 @@ export async function carregarProjecao(): Promise<Projecao> {
   const inicioBusca = iso(new Date(ano, mes0 - 3, 1, 12));
 
   const [contas, lanc, cartoes, fixas] = await Promise.all([
-    supabase.from("contas").select("tipo, banco, cartao_id, saldo_banco, saldo_banco_em").eq("arquivada", false),
+    supabase
+      .from("contas")
+      .select("tipo, banco, cartao_id, saldo_banco, saldo_banco_em, fatura_vencimento")
+      .eq("arquivada", false),
     supabase
       .from("lancamentos")
       .select("descricao, tipo, valor, data, meio_pagamento, conta_cartao, recorrencia_id")
@@ -161,7 +164,10 @@ export async function carregarProjecao(): Promise<Projecao> {
     const diaV = Number(c.cartao.dia_vencimento);
     const diaF = Number(c.cartao.dia_fechamento);
     if (!Number.isFinite(diaV) || !Number.isFinite(diaF)) continue;
-    const vencimento = diaNoMes(ano, c.m, diaV);
+    // Com o cartão conectado, o dia de vencimento real vem do banco (pode diferir do cadastrado).
+    const vencBanco = faturaDoBanco(c.cartao)?.fatura_vencimento as string | null | undefined;
+    const diaReal = vencBanco ? Number(vencBanco.slice(8, 10)) || diaV : diaV;
+    const vencimento = diaNoMes(ano, c.m, diaReal);
     if (iso(vencimento) < hoje) continue; // já venceu: considera paga
     const { de, ate } = cicloDaFatura(vencimento, diaF);
     const rotulo = labelContaCartaoPersistido(String(c.cartao.nome ?? "")).toLowerCase();
