@@ -17,9 +17,8 @@ import {
 import { Botao, Card, Chip, Valor, campoClasse } from "@/components/ui/base";
 import { IconeCategoria } from "@/components/ui/IconeCategoria";
 import { getBancoById } from "@/data/bancos";
-import { mergeCategoriasPadraoComBanco } from "@/lib/categorias-padrao";
-import { fetchDistinctTagsForUser } from "@/lib/categorias-tags";
-import { supabase } from "@/lib/supabase";
+import { carregarCategoriasPorUso } from "@/lib/categorias-tags";
+import { SeletorCategoria } from "@/components/ui/SeletorCategoria";
 import type { TipoMovimento } from "@/lib/importacao/classificar";
 import { decodificarArquivoOfx, parseOfx, type OfxExtrato } from "@/lib/importacao/ofx";
 import {
@@ -53,7 +52,6 @@ const BANCO_POR_CODIGO: Record<string, string> = {
   "536": "neon",
 };
 
-const DATALIST_CATEGORIAS_ID = "lista-categorias-importar";
 
 /** Ao abrir a tela, sincroniza sozinho se a última busca tiver mais que isso. */
 const HORAS_ENTRE_SINCRONIZACOES = 6;
@@ -205,15 +203,14 @@ export function ImportarScreen() {
     let cancelado = false;
     (async () => {
       try {
-        const [listaContas, { data: auth }, status] = await Promise.all([
+        const [listaContas, status, cats] = await Promise.all([
           listarContas(),
-          supabase.auth.getUser(),
           statusOpenFinance(),
+          carregarCategoriasPorUso(),
         ]);
-        const tags = auth.user ? await fetchDistinctTagsForUser(auth.user.id) : [];
         if (cancelado) return;
         setContas(listaContas);
-        setCategorias(mergeCategoriasPadraoComBanco(tags));
+        setCategorias(cats);
         setOpenFinance(status.disponivel);
         await recarregarPendentes();
       } catch (e) {
@@ -378,6 +375,8 @@ export function ImportarScreen() {
   }, [visiveis]);
 
   function editar(id: string, parcial: Partial<Edicao>) {
+    const categoriaNova = parcial.categoria?.trim();
+    if (categoriaNova && !categorias.includes(categoriaNova)) setCategorias((cs) => [categoriaNova, ...cs]);
     const atual = edicoes[id];
     if (!atual) return;
     const nova = { ...atual, ...parcial };
@@ -594,12 +593,6 @@ export function ImportarScreen() {
             </button>
           </div>
 
-          <datalist id={DATALIST_CATEGORIAS_ID}>
-            {categorias.map((c) => (
-              <option key={c} value={c} />
-            ))}
-          </datalist>
-
           {gruposPorDia.map((g) => (
             <div key={g.dia}>
               <p className="mb-1 text-xs font-medium capitalize text-texto-3">{rotuloDia(g.dia)}</p>
@@ -616,6 +609,7 @@ export function ImportarScreen() {
                     onAbrir={() => setAberta((a) => (a === t.id ? null : t.id))}
                     onSelecionar={() => alternarSelecao(t.id)}
                     onEditar={(p) => editar(t.id, p)}
+                    categorias={categorias}
                   />
                 ))}
               </Card>
@@ -705,6 +699,7 @@ function LinhaRevisao({
   onAbrir,
   onSelecionar,
   onEditar,
+  categorias,
 }: {
   transacao: TransacaoImportada;
   edicao: Edicao;
@@ -715,6 +710,7 @@ function LinhaRevisao({
   onAbrir: () => void;
   onSelecionar: () => void;
   onEditar: (p: Partial<Edicao>) => void;
+  categorias: string[];
 }) {
   const transferencia = edicao.tipo === "transferencia";
   const revisar = precisaRevisao(edicao);
@@ -813,13 +809,11 @@ function LinhaRevisao({
             ))}
           </div>
           {!transferencia ? (
-            <input
-              value={edicao.categoria}
-              onChange={(e) => onEditar({ categoria: e.target.value })}
-              list={DATALIST_CATEGORIAS_ID}
-              placeholder="Categoria"
-              aria-label="Categoria"
-              className={`${campoClasse} ${!edicao.categoria.trim() ? "border-alerta/50" : ""}`}
+            <SeletorCategoria
+              valor={edicao.categoria}
+              onChange={(categoria) => onEditar({ categoria })}
+              categorias={categorias}
+              destaque
             />
           ) : null}
           {duplicadoDe ? (

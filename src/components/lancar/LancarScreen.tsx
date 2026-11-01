@@ -32,8 +32,8 @@ import {
 import { TagsExtrasField } from "@/components/form/TagsExtrasField";
 import { Botao, Card, campoClasse } from "@/components/ui/base";
 import { IconeCategoria } from "@/components/ui/IconeCategoria";
-import { mergeCategoriasPadraoComBanco } from "@/lib/categorias-padrao";
-import { fetchDistinctTagsForUser } from "@/lib/categorias-tags";
+import { carregarCategoriasPorUso } from "@/lib/categorias-tags";
+import { SeletorCategoria } from "@/components/ui/SeletorCategoria";
 import { fetchDistinctTagsExtrasHistoricoForUser } from "@/lib/tags-extras-historico";
 import {
   MAX_AMOUNT_DIGITS_LANCAMENTO,
@@ -70,7 +70,6 @@ const PAYMENT_OPTIONS: { id: PaymentMethod; label: string }[] = [
   { id: "dinheiro", label: "Dinheiro" },
 ];
 
-const DATALIST_CATEGORIAS_LANCAR_ID = "lista-categorias-lancar";
 const DATALIST_PESSOAS_LANCAR_ID = "lista-pessoas-dividir-lancar";
 
 function todayIsoLocal(): string {
@@ -240,13 +239,13 @@ export function LancarScreen() {
       if (userError || !user) return;
 
       const [categoriasBanco, tagsExtrasHist, cartRes] = await Promise.all([
-        fetchDistinctTagsForUser(user.id),
+        carregarCategoriasPorUso(),
         fetchDistinctTagsExtrasHistoricoForUser(user.id),
         supabase.from("cartoes").select("id, nome, banco").eq("user_id", user.id),
       ]);
       if (cancelled) return;
 
-      setCategoriasSalvas(mergeCategoriasPadraoComBanco(categoriasBanco));
+      setCategoriasSalvas(categoriasBanco);
       setTagsHistorico(tagsExtrasHist);
 
       if (cartRes.error) {
@@ -325,13 +324,10 @@ export function LancarScreen() {
     [],
   );
 
-  const opcoesCategoriaDatalist = useMemo(() => {
-    const uniq = new Set<string>(categoriasSalvas);
+  // Mantém as mais usadas no topo; uma categoria recém-criada entra logo no início.
+  const opcoesCategoria = useMemo(() => {
     const catTrim = category.trim();
-    if (catTrim) uniq.add(catTrim);
-    return [...uniq].sort((a, b) =>
-      a.localeCompare(b, "pt-BR", { sensitivity: "base" }),
-    );
+    return catTrim && !categoriasSalvas.includes(catTrim) ? [catTrim, ...categoriasSalvas] : categoriasSalvas;
   }, [categoriasSalvas, category]);
 
   const isCredito = tipo === "despesa" && paymentMethod === "credito";
@@ -707,24 +703,15 @@ export function LancarScreen() {
             rotulo="Categoria"
             htmlFor="lanc-categoria-input"
           >
-            <input
-              id="lanc-categoria-input"
-              list={DATALIST_CATEGORIAS_LANCAR_ID}
-              type="text"
-              value={category}
-              onChange={(e) => {
-                setCategory(e.target.value);
+            <SeletorCategoria
+              valor={category}
+              onChange={(c) => {
+                setCategory(c);
                 setSubmitError(null);
               }}
-              placeholder="Escolher"
-              autoComplete="off"
-              className={controleLinha}
+              categorias={opcoesCategoria}
+              variante="linha"
             />
-            <datalist id={DATALIST_CATEGORIAS_LANCAR_ID}>
-              {opcoesCategoriaDatalist.map((c) => (
-                <option key={c} value={c} />
-              ))}
-            </datalist>
           </Linha>
 
           <Linha icone={<Calendar className="h-4 w-4" aria-hidden />} rotulo="Data" htmlFor="lanc-date">
