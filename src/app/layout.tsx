@@ -27,6 +27,9 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  // Impede o zoom automático do Safari ao tocar em um campo. O gesto de pinça continua
+  // funcionando no iPhone (o iOS ignora o limite para isso, por acessibilidade).
+  maximumScale: 1,
   // Ocupa a tela toda no iPhone; as áreas seguras são tratadas com env(safe-area-inset-*).
   viewportFit: "cover",
   themeColor: "#0e0e10",
