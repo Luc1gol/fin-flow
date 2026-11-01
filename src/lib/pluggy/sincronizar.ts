@@ -13,6 +13,7 @@ import {
   type PluggyConta,
 } from "@/lib/pluggy/cliente";
 import { normalizarTransacao } from "@/lib/pluggy/mapear";
+import { fechamentoDaFatura } from "@/lib/cartao-datas";
 
 /**
  * Sincronização com o banco (Pluggy). Roda no servidor, tanto quando o usuário toca em
@@ -44,9 +45,13 @@ function hojeBrasilia(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
 }
 
+/**
+ * Datas de calendário do banco (vencimento, fechamento). Vêm como meia-noite UTC
+ * ("2026-11-10T00:00:00Z"); converter para o fuso de Brasília voltaria um dia (09/11).
+ */
 function dataIso(valor: string | null | undefined): string | null {
-  if (!valor) return null;
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date(valor));
+  const m = valor ? /^d{4}-d{2}-d{2}/.exec(valor) : null;
+  return m ? m[0] : null;
 }
 
 function diaDoMes(dataIsoValor: string | null): number | null {
@@ -176,10 +181,17 @@ async function salvarDadosCartao(
 
   // Mantém os dias de fechamento e vencimento do cartão cadastrado iguais aos do banco,
   // para a projeção, os avisos e o ciclo da fatura usarem as datas reais.
-  const diaFechamento = diaDoMes(dataIso(c?.balanceCloseDate));
+  const { data: vinculo } = await db
+    .from("contas")
+    .select("cartao_id, cartoes(banco)")
+    .eq("id", contaId)
+    .maybeSingle();
+  const bancoCartao = (vinculo?.cartoes as { banco?: string | null } | null)?.banco ?? null;
+  const diaFechamento = diaDoMes(
+    fechamentoDaFatura(dataIso(c?.balanceCloseDate), dataIso(c?.balanceDueDate), bancoCartao),
+  );
   const diaVencimento = diaDoMes(dataIso(c?.balanceDueDate));
   if (diaFechamento || diaVencimento) {
-    const { data: vinculo } = await db.from("contas").select("cartao_id").eq("id", contaId).maybeSingle();
     if (vinculo?.cartao_id) {
       await db
         .from("cartoes")
