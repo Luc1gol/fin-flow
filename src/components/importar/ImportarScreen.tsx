@@ -121,6 +121,22 @@ function ultimaSincronizacaoTexto(contas: Conta[]): string {
   }).format(new Date(ultima))}`;
 }
 
+/** "hoje às 08:12", "ontem às 23:40" ou "28/10 às 09:00". */
+function quando(isoData: string): string {
+  const d = new Date(isoData);
+  const hora = new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" }).format(d);
+  const dia = isoLocal(d);
+  const hoje = new Date();
+  const amanha = new Date(hoje);
+  amanha.setDate(hoje.getDate() + 1);
+  const ontem = new Date(hoje);
+  ontem.setDate(hoje.getDate() - 1);
+  if (dia === isoLocal(hoje)) return `hoje às ${hora}`;
+  if (dia === isoLocal(ontem)) return `ontem às ${hora}`;
+  if (dia === isoLocal(amanha)) return `amanhã às ${hora}`;
+  return `${dia.slice(8, 10)}/${dia.slice(5, 7)} às ${hora}`;
+}
+
 function edicaoInicial(t: TransacaoImportada): Edicao {
   return {
     tipo: t.sugestao_tipo,
@@ -158,6 +174,10 @@ export function ImportarScreen() {
   const [arquivoSemConta, setArquivoSemConta] = useState<ArquivoLido | null>(null);
   const [openFinance, setOpenFinance] = useState(false);
   const [sincronizando, setSincronizando] = useState(false);
+  const [atualizacaoBanco, setAtualizacaoBanco] = useState<{
+    ultima: string | null;
+    proxima: string | null;
+  } | null>(null);
   const sincronizouAoAbrir = useRef(false);
   const inputArquivoRef = useRef<HTMLInputElement>(null);
 
@@ -213,13 +233,14 @@ export function ImportarScreen() {
     setErro(null);
     setAviso(null);
     try {
-      const { contas: porConta } = await sincronizarOpenFinance();
+      const { contas: porConta, bancoAtualizadoEm, proximaAtualizacao } = await sincronizarOpenFinance();
       const novas = porConta.reduce((acc, c) => acc + c.novas, 0);
       setContas(await listarContas());
       await recarregarPendentes();
+      setAtualizacaoBanco({ ultima: bancoAtualizadoEm, proxima: proximaAtualizacao });
       setAviso(
         novas === 0
-          ? "Tudo em dia: nenhuma transação nova no banco."
+          ? "Nenhuma transação nova desde a última atualização do banco."
           : `${novas} transações novas do banco.`,
       );
     } catch (e) {
@@ -467,7 +488,13 @@ export function ImportarScreen() {
             </span>
             <div className="min-w-0 flex-1">
               <p className="text-sm text-texto">Banco conectado</p>
-              <p className="truncate text-xs text-texto-3">{ultimaSincronizacaoTexto(contas)}</p>
+              <p className="truncate text-xs text-texto-3">
+                {atualizacaoBanco?.ultima
+                  ? `Banco enviou dados ${quando(atualizacaoBanco.ultima)}${
+                      atualizacaoBanco.proxima ? ` · próxima ${quando(atualizacaoBanco.proxima)}` : ""
+                    }`
+                  : ultimaSincronizacaoTexto(contas)}
+              </p>
             </div>
             <Botao tamanho="sm" disabled={sincronizando || processando} onClick={() => void sincronizar()}>
               <RefreshCw className={`h-3.5 w-3.5 ${sincronizando ? "animate-spin" : ""}`} aria-hidden />

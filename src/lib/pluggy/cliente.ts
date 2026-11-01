@@ -81,6 +81,19 @@ export async function autenticar(): Promise<string> {
   return apiKey;
 }
 
+export type PluggyItem = {
+  id: string;
+  status: string;
+  lastUpdatedAt: string | null;
+  nextAutoSyncAt: string | null;
+  consentExpiresAt: string | null;
+};
+
+/** Quando o banco (Meu Pluggy) atualizou os dados pela última vez e quando atualiza de novo. */
+export async function obterItem(apiKey: string, itemId: string): Promise<PluggyItem> {
+  return chamar<PluggyItem>(`/items/${encodeURIComponent(itemId)}`, apiKey);
+}
+
 export async function listarContasDoItem(
   apiKey: string,
   itemId: string,

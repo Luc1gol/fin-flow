@@ -130,6 +130,7 @@ type LancamentoInsertRow = {
   conta_cartao: string | null;
   tags_extras: unknown;
   meio_pagamento: string;
+  observacao: string | null;
   recorrencia_id?: string;
 };
 
@@ -143,6 +144,7 @@ function buildLancamentoInsertRow(args: {
   contaCartao: string | null;
   tagsExtras: unknown;
   meioPagamento: string;
+  observacao: string | null;
   recorrenciaId?: string;
 }): LancamentoInsertRow {
   const row: LancamentoInsertRow = {
@@ -155,6 +157,7 @@ function buildLancamentoInsertRow(args: {
     conta_cartao: args.contaCartao,
     tags_extras: args.tagsExtras,
     meio_pagamento: args.meioPagamento,
+    observacao: args.observacao,
   };
   if (args.recorrenciaId) {
     row.recorrencia_id = args.recorrenciaId;
@@ -448,6 +451,7 @@ export function LancarScreen() {
               contaCartao: contaCartaoSalvar ? contaCartaoSalvar : null,
               tagsExtras: tagsExtrasDb,
               meioPagamento: meioPagamentoDb,
+              observacao: description.trim() || null,
               recorrenciaId: recId,
             }),
           );
@@ -477,6 +481,7 @@ export function LancarScreen() {
             contaCartao: contaCartaoSalvar ? contaCartaoSalvar : null,
             tagsExtras: tagsExtrasDb,
             meioPagamento: meioPagamentoDb,
+              observacao: description.trim() || null,
           }),
         ]);
         if (insErr) throw insErr;
@@ -499,6 +504,7 @@ export function LancarScreen() {
               contaCartao: contaCartaoSalvar ? contaCartaoSalvar : null,
               tagsExtras: tagsExtrasDb,
               meioPagamento: meioPagamentoDb,
+              observacao: description.trim() || null,
             }),
           );
         }

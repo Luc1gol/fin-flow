@@ -235,6 +235,9 @@ export async function sincronizarOpenFinance(): Promise<ResultadoSincronizacao> 
 
 export type ResultadoSincronizacao = {
   contas: { nome: string; novas: number; duplicadas: number }[];
+  /** Última vez que o banco mandou dados novos para o Meu Pluggy. */
+  bancoAtualizadoEm: string | null;
+  proximaAtualizacao: string | null;
 };
 
 /** Diz se a sincronização automática está disponível para o usuário logado. */

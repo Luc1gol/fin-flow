@@ -6,6 +6,7 @@ import {
   autenticar,
   listarContasDoItem,
   listarTransacoes,
+  obterItem,
   pluggyConfigurado,
   pluggyItemIds,
   type PluggyConta,
@@ -81,7 +82,11 @@ export async function POST(request: Request) {
     ]);
 
     const resultado: { nome: string; novas: number; duplicadas: number }[] = [];
+    const atualizacoes: { ultima: string | null; proxima: string | null }[] = [];
     for (const itemId of pluggyItemIds()) {
+      // Informativo: se falhar, a sincronização segue normalmente.
+      const item = await obterItem(apiKey, itemId).catch(() => null);
+      if (item) atualizacoes.push({ ultima: item.lastUpdatedAt, proxima: item.nextAutoSyncAt });
       for (const contaPluggy of await listarContasDoItem(apiKey, itemId)) {
         const conta = await obterOuCriarConta(db, contaPluggy);
         const cartao = contaPluggy.type === "CREDIT";
@@ -114,7 +119,14 @@ export async function POST(request: Request) {
         resultado.push({ nome: conta.nome, novas, duplicadas });
       }
     }
-    return Response.json({ contas: resultado });
+    // Data mais antiga entre os bancos: é ela que limita o que já chegou.
+    const ultimas = atualizacoes.map((a) => a.ultima).filter((d): d is string => Boolean(d)).sort();
+    const proximas = atualizacoes.map((a) => a.proxima).filter((d): d is string => Boolean(d)).sort();
+    return Response.json({
+      contas: resultado,
+      bancoAtualizadoEm: ultimas[0] ?? null,
+      proximaAtualizacao: proximas[0] ?? null,
+    });
   } catch (e) {
     console.error("[open-finance]", e);
     return Response.json(

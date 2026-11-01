@@ -53,5 +53,8 @@ export function mapLancamentoRowFromDb(
     dataISO,
     ...(recorrencia_id ? { recorrencia_id } : {}),
     ...(tags_extras.length > 0 ? { tags_extras } : {}),
+    ...(row.observacao != null && String(row.observacao).trim()
+      ? { observacao: String(row.observacao).trim() }
+      : {}),
   };
 }

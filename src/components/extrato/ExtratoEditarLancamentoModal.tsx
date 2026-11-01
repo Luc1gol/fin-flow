@@ -86,6 +86,7 @@ export function ExtratoEditarLancamentoModal({
     contaCartaoDbParaSelectValue(item.meioPagamento, cartoesUsuario),
   );
   const [categoria, setCategoria] = useState(() => item.tag ?? "");
+  const [observacao, setObservacao] = useState(() => item.observacao ?? "");
   const [tagsSelecionadas, setTagsSelecionadas] = useState(
     () => item.tags_extras ?? [],
   );
@@ -213,6 +214,7 @@ export function ExtratoEditarLancamentoModal({
               tag: p.tagDb,
               conta_cartao: p.contaDb,
               data: p.novaData,
+              observacao: observacao.trim() || null,
               tags_extras: p.tagsExtrasDb,
               meio_pagamento: p.meioPagamentoDb,
             })
@@ -286,7 +288,7 @@ export function ExtratoEditarLancamentoModal({
         setScopeLoading(false);
       }
     },
-    [item, onClose, onSaved, onRefreshList],
+    [item, observacao, onClose, onSaved, onRefreshList],
   );
 
   const handleSubmit = useCallback(
@@ -428,6 +430,7 @@ export function ExtratoEditarLancamentoModal({
             tag: tagDb,
             conta_cartao: contaDb,
             data: novaData,
+            observacao: observacao.trim() || null,
             tags_extras: tagsExtrasDb,
             meio_pagamento: meioPagamentoDb,
           })
@@ -455,6 +458,7 @@ export function ExtratoEditarLancamentoModal({
     },
     [
       descricao,
+      observacao,
       amountDigits,
       dataISO,
       contaState,
@@ -665,6 +669,17 @@ export function ExtratoEditarLancamentoModal({
             tagsHistorico={tagsHistorico}
             ringFocus=""
           />
+
+          <label className="flex flex-col gap-1 text-xs text-texto-2">
+            Observações
+            <textarea
+              value={observacao}
+              onChange={(e) => setObservacao(e.target.value)}
+              rows={2}
+              placeholder="Ex.: dividido com a Ellen"
+              className={`${campoClasse} h-auto min-h-16 resize-none py-2`}
+            />
+          </label>
         </form>
       </ExtratoFolha>
 

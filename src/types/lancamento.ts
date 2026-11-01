@@ -21,6 +21,8 @@ export type LancamentoExtrato = {
   recorrencia_id?: string | null;
   /** Tags livres vindas da coluna `tags_extras` (TEXT[]). */
   tags_extras?: string[];
+  /** Anotação livre do usuário (coluna `observacao`). */
+  observacao?: string;
 };
 
 /** Seeder para a tela Extrato — será substituído por API / store. */
