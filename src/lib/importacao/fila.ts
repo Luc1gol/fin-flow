@@ -23,6 +23,8 @@ export async function enfileirarTransacoes(
     nomesTitular: string[];
     regras: ReadonlyMap<string, RegraUsuario>;
     cartaoCredito?: boolean;
+    /** Dono dos dados; obrigatório quando o cliente não está logado como o usuário (rotina diária). */
+    userId?: string;
     /**
      * Ignora transações que já estão na fila com a mesma data e valor, mesmo com outro
      * id externo — evita repetir o que veio antes por OFX quando chega pela Pluggy.
@@ -43,6 +45,7 @@ export async function enfileirarTransacoes(
   const { data: importacao, error: errImp } = await db
     .from("importacoes")
     .insert({
+      ...(params.userId ? { user_id: params.userId } : {}),
       conta_id: params.contaId,
       arquivo_nome: params.origem,
       periodo_inicio: datas[0],
@@ -59,6 +62,7 @@ export async function enfileirarTransacoes(
       cartaoCredito: params.cartaoCredito,
     });
     return {
+      ...(params.userId ? { user_id: params.userId } : {}),
       conta_id: params.contaId,
       importacao_id: importacao.id,
       id_externo: t.idExterno,

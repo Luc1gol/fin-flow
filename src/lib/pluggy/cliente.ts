@@ -14,6 +14,35 @@ export type PluggyConta = {
   marketingName: string | null;
   balance: number;
   itemId: string;
+  /** Só em contas de cartão de crédito. */
+  creditData?: {
+    creditLimit?: number | null;
+    availableCreditLimit?: number | null;
+    balanceCloseDate?: string | null;
+    balanceDueDate?: string | null;
+    minimumPayment?: number | null;
+  } | null;
+};
+
+export type PluggyFatura = {
+  id: string;
+  dueDate: string;
+  totalAmount: number;
+  minimumPaymentAmount?: number | null;
+  payments?: { amount: number }[] | null;
+};
+
+export type PluggyInvestimento = {
+  id: string;
+  name: string;
+  type?: string | null;
+  subtype?: string | null;
+  balance?: number | null;
+  status?: string | null;
+  issuer?: string | null;
+  institution?: { name?: string | null } | null;
+  annualRate?: number | null;
+  rateType?: string | null;
 };
 
 export type PluggyParte = { name?: string | null } | null;
@@ -92,6 +121,23 @@ export type PluggyItem = {
 /** Quando o banco (Meu Pluggy) atualizou os dados pela última vez e quando atualiza de novo. */
 export async function obterItem(apiKey: string, itemId: string): Promise<PluggyItem> {
   return chamar<PluggyItem>(`/items/${encodeURIComponent(itemId)}`, apiKey);
+}
+
+/** Faturas do cartão (atual e anteriores). Nem todo banco envia: trate lista vazia. */
+export async function listarFaturas(apiKey: string, accountId: string): Promise<PluggyFatura[]> {
+  const { results } = await chamar<{ results: PluggyFatura[] }>(
+    `/bills?accountId=${encodeURIComponent(accountId)}`,
+    apiKey,
+  );
+  return results ?? [];
+}
+
+export async function listarInvestimentos(apiKey: string, itemId: string): Promise<PluggyInvestimento[]> {
+  const { results } = await chamar<{ results: PluggyInvestimento[] }>(
+    `/investments?itemId=${encodeURIComponent(itemId)}&pageSize=500`,
+    apiKey,
+  );
+  return results ?? [];
 }
 
 export async function listarContasDoItem(
