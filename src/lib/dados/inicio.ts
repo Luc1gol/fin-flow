@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { proximoVencimento } from "@/lib/dados/cartoes-banco";
 
 export type MovimentoResumo = {
   id: string;
@@ -60,13 +61,16 @@ export async function carregarResumoInicio(ano: number, mes0: number): Promise<R
       .lte("data", ate)
       .order("data", { ascending: false })
       .order("created_at", { ascending: false }),
-    supabase.from("contas").select("tipo, saldo_banco, saldo_banco_em").eq("arquivada", false),
+    supabase
+      .from("contas")
+      .select("tipo, saldo_banco, saldo_banco_em, cartao_id, fatura_vencimento")
+      .eq("arquivada", false),
     supabase
       .from("transacoes_importadas")
       .select("id", { count: "exact", head: true })
       .eq("status", "pendente"),
     supabase.from("profiles").select("apelido, nome_completo").eq("id", user.id).maybeSingle(),
-    supabase.from("cartoes").select("nome, dia_vencimento").eq("user_id", user.id),
+    supabase.from("cartoes").select("id, nome, dia_vencimento").eq("user_id", user.id),
   ]);
   if (lanc.error) throw lanc.error;
 
@@ -144,12 +148,15 @@ export async function carregarResumoInicio(ano: number, mes0: number): Promise<R
   const hoje = new Date();
   let cartaoVencendo: ResumoInicio["cartaoVencendo"] = null;
   for (const c of cartoes.data ?? []) {
-    const dia = Number(c.dia_vencimento);
-    if (!Number.isFinite(dia)) continue;
-    let venc = new Date(hoje.getFullYear(), hoje.getMonth(), dia);
-    if (venc < new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate())) {
-      venc = new Date(hoje.getFullYear(), hoje.getMonth() + 1, dia);
-    }
+    // Cartão conectado ao banco: vale o vencimento real informado por ele.
+    const vinculada = (contas.data ?? []).find((k) => k.cartao_id === c.id);
+    const proximo = proximoVencimento(
+      (vinculada?.fatura_vencimento as string | null | undefined) ?? null,
+      Number(c.dia_vencimento) || null,
+      hoje,
+    );
+    if (!proximo) continue;
+    const venc = new Date(`${proximo}T00:00:00`);
     const dias = Math.round((venc.getTime() - new Date(hoje.toDateString()).getTime()) / 86_400_000);
     if (dias <= 5 && (!cartaoVencendo || dias < cartaoVencendo.dias)) {
       cartaoVencendo = { nome: String(c.nome ?? "cartão"), dias };
