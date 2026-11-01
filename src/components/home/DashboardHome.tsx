@@ -381,7 +381,7 @@ export function DashboardHome() {
                   <Variacao pct={variacao(comp?.entradas)} rotulo={rotuloComparacao} visivel={!oculto && !carregando} />
                 </Card>
               </Link>
-              <Link href="/relatorios?aba=para-onde-vai" className="block">
+              <Link href="/relatorios?aba=para-onde" className="block">
                 <Card className="px-3 py-2.5">
                   <p className="flex items-center gap-1 text-xs text-texto-3">
                     <ArrowUpRight className="h-3.5 w-3.5 text-negativo" aria-hidden /> Saídas

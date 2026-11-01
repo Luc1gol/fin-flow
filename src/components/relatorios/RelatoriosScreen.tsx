@@ -1,40 +1,25 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import { ArrowDownLeft, ArrowUpRight, Inbox } from "lucide-react";
-import type {
-  LancamentoRelatorioRow,
-  PeriodoRelatorioId,
-  VisaoComposicao,
-} from "@/types/relatorios";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { RefreshCw } from "lucide-react";
+import type { AbaAnaliseId, DadosAnalise, PeriodoRelatorioId } from "@/types/relatorios";
+import { carregarDadosAnalise } from "@/lib/dados/analise";
+import { Botao } from "@/components/ui/base";
 import {
-  labelContaCartaoPersistido,
-  type CartaoUsuarioOrigem,
-} from "@/lib/conta-cartao-lancamento";
-import { coalesceTagsExtrasFromUnknown } from "@/lib/tags-extras-coalesce";
-import { supabase } from "@/lib/supabase";
-import { Card, LinhaLista, Secao, Valor } from "@/components/ui/base";
-import { IconeCategoria } from "@/components/ui/IconeCategoria";
-import {
-  ROTULO_COMPARACAO,
-  composicaoDeGastos,
+  COMPARACAO_NO,
   dentroDo,
-  diasDecorridos,
-  emFatias,
-  evolucaoDoPeriodo,
   intervaloAnterior,
   intervaloDoPeriodo,
   isoDaData,
-  maioresDespesas,
   rotuloIntervalo,
-  somarTotais,
-  tipoFluxo,
-  valorNumerico,
-  variacaoPct,
 } from "@/components/relatorios/dados";
-import { COR_ENTRADA, COR_SAIDA, GraficoEvolucao } from "@/components/relatorios/GraficoEvolucao";
-import { Esqueleto, ListaComposicao, LogoBanco, Segmentado } from "@/components/relatorios/ui";
+import { BarraAbas, Esqueleto, Segmentado } from "@/components/relatorios/ui";
+import type { ContextoAnalise } from "@/components/relatorios/contexto";
+import { AbaVisaoGeral } from "@/components/relatorios/AbaVisaoGeral";
+import { AbaParaOnde } from "@/components/relatorios/AbaParaOnde";
+import { AbaCartao } from "@/components/relatorios/AbaCartao";
+import { AbaHabitos } from "@/components/relatorios/AbaHabitos";
 
 const PERIODOS: readonly { id: PeriodoRelatorioId; label: string }[] = [
   { id: "7d", label: "7 dias" },
@@ -43,184 +28,138 @@ const PERIODOS: readonly { id: PeriodoRelatorioId; label: string }[] = [
   { id: "ano", label: "Ano" },
 ];
 
-const VISOES: readonly { id: VisaoComposicao; label: string }[] = [
-  { id: "categoria", label: "Categoria" },
-  { id: "cartao", label: "Conta/cartão" },
-  { id: "tag", label: "Tag" },
+const ABAS: readonly { id: AbaAnaliseId; label: string }[] = [
+  { id: "geral", label: "Visão geral" },
+  { id: "para-onde", label: "Para onde vai" },
+  { id: "cartao", label: "Cartão" },
+  { id: "habitos", label: "Hábitos" },
 ];
 
-const MAX_FATIAS = 5;
-const TOP_INICIAL = 5;
-const TOP_MAX = 10;
+function lerAba(v: string | null): AbaAnaliseId {
+  return ABAS.some((a) => a.id === v) ? (v as AbaAnaliseId) : "geral";
+}
 
-type DadosAnalise = {
-  periodo: PeriodoRelatorioId;
-  /** "Agora" no momento da busca: base de todas as janelas de datas. */
-  ref: Date;
-  lancamentos: LancamentoRelatorioRow[];
-  cartoes: CartaoUsuarioOrigem[];
-  erro: boolean;
-};
+function lerPeriodo(v: string | null): PeriodoRelatorioId {
+  return PERIODOS.some((p) => p.id === v) ? (v as PeriodoRelatorioId) : "mes";
+}
 
-/** Busca o período atual e o anterior (para comparação) numa única consulta. */
+/**
+ * Busca numa ida tudo que as abas usam: do início da janela mais antiga
+ * (período anterior ou 6 meses completos atrás) até o fim do 5º mês à frente (parcelas futuras).
+ */
 async function carregarAnalise(periodo: PeriodoRelatorioId): Promise<DadosAnalise> {
   const ref = new Date();
-  const vazio: DadosAnalise = { periodo, ref, lancamentos: [], cartoes: [], erro: false };
-  const atual = intervaloDoPeriodo(periodo, ref);
+  const y = ref.getFullYear();
+  const m = ref.getMonth();
   const anterior = intervaloAnterior(periodo, ref);
+  const seisMesesAtras = isoDaData(new Date(y, m - 6, 1, 12));
+  const desde = anterior.desde < seisMesesAtras ? anterior.desde : seisMesesAtras;
+  const ate = isoDaData(new Date(y, m + 6, 0, 12));
+  const faturasDesde = isoDaData(new Date(y, m - 12, 1, 12));
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-  if (userError || !user) return vazio;
-
-  const [lacRes, cartRes] = await Promise.all([
-    supabase
-      .from("lancamentos")
-      .select("id, tipo, valor, data, descricao, tag, conta_cartao, tags_extras")
-      .eq("user_id", user.id)
-      .gte("data", anterior.desde < atual.desde ? anterior.desde : atual.desde)
-      .lte("data", atual.ate),
-    supabase.from("cartoes").select("id, nome, banco").eq("user_id", user.id),
-  ]);
-
-  if (cartRes.error) console.error(cartRes.error);
-  const cartoes = cartRes.error
-    ? []
-    : ((cartRes.data ?? []) as { id: string; nome: string | null; banco?: string | null }[]).map(
-        (r) => ({
-          id: String(r.id),
-          nome: String(r.nome ?? "").trim(),
-          banco: String(r.banco ?? "").trim(),
-        }),
-      );
-
-  if (lacRes.error) {
-    console.error(lacRes.error);
-    return { ...vazio, cartoes, erro: true };
+  const vazio: DadosAnalise = {
+    periodo,
+    ref,
+    lancamentos: [],
+    contasCartao: [],
+    faturas: [],
+    bancoPorCartao: {},
+    erro: false,
+  };
+  try {
+    const r = await carregarDadosAnalise({ desde, ate, faturasDesde });
+    if (!r) return vazio;
+    return { ...vazio, ...r };
+  } catch (e) {
+    console.error("[analise]", e);
+    return { ...vazio, erro: true };
   }
-
-  const lancamentos: LancamentoRelatorioRow[] = (lacRes.data ?? []).map(
-    (item: Record<string, unknown>) => ({
-      id: String(item.id),
-      tipo: String(item.tipo ?? ""),
-      valor: item.valor,
-      data: String(item.data ?? "").slice(0, 10),
-      descricao: item.descricao != null ? String(item.descricao) : null,
-      tag: item.tag != null ? String(item.tag) : null,
-      conta_cartao: item.conta_cartao != null ? String(item.conta_cartao) : null,
-      tags_extras: coalesceTagsExtrasFromUnknown(item.tags_extras),
-    }),
-  );
-  return { periodo, ref, lancamentos, cartoes, erro: false };
 }
 
-function dataCurta(iso: string) {
-  const [, m, d] = iso.split("-");
-  return `${d}/${m}`;
-}
-
-/** "▲ 12%" colorido: subir é bom para entradas e ruim para saídas. */
-function Variacao({ pct, subirEhBom }: { pct: number | null; subirEhBom: boolean }) {
-  if (pct == null) return <span className="text-texto-3">sem base de comparação</span>;
-  if (pct === 0) return <span className="text-texto-3">igual ao anterior</span>;
-  const bom = pct > 0 === subirEhBom;
+function EsqueletoAnalise() {
   return (
-    <span className={bom ? "text-positivo" : "text-negativo"}>
-      {pct > 0 ? "▲" : "▼"} {Math.abs(pct)}%
-      <span className="text-texto-3"> vs anterior</span>
-    </span>
+    <div className="flex flex-col gap-3" aria-busy>
+      <Esqueleto className="h-24 rounded-2xl" />
+      <div className="grid grid-cols-2 gap-2">
+        <Esqueleto className="h-20 rounded-2xl" />
+        <Esqueleto className="h-20 rounded-2xl" />
+      </div>
+      <Esqueleto className="h-56 rounded-2xl" />
+    </div>
   );
 }
 
 export function RelatoriosScreen() {
-  const [periodo, setPeriodo] = useState<PeriodoRelatorioId>("mes");
-  const [visao, setVisao] = useState<VisaoComposicao>("categoria");
-  const [composicaoAberta, setComposicaoAberta] = useState(false);
-  const [topAberto, setTopAberto] = useState(false);
-  const [dados, setDados] = useState<DadosAnalise | null>(null);
+  const params = useSearchParams();
+  const aba = lerAba(params.get("aba"));
+  const periodo = lerPeriodo(params.get("periodo"));
+  const [tentativa, setTentativa] = useState(0);
+  const chave = `${periodo}|${tentativa}`;
+  const [dados, setDados] = useState<{ chave: string; dados: DadosAnalise } | null>(null);
 
   useEffect(() => {
     let cancelado = false;
-    carregarAnalise(periodo)
-      .then((d) => {
-        if (!cancelado) setDados(d);
-      })
-      .catch((e) => {
-        console.error(e);
-        if (!cancelado) {
-          setDados({ periodo, ref: new Date(), lancamentos: [], cartoes: [], erro: true });
-        }
-      });
+    carregarAnalise(periodo).then((d) => {
+      if (!cancelado) setDados({ chave, dados: d });
+    });
     return () => {
       cancelado = true;
     };
-  }, [periodo]);
+  }, [chave, periodo]);
 
-  // Carregando = ainda não chegaram os dados do período escolhido.
-  const carregando = dados?.periodo !== periodo;
-  const ref = dados?.ref;
+  /** Troca aba/período na URL sem recarregar (integra com useSearchParams). */
+  const atualizarUrl = useCallback(
+    (mudanca: { aba?: AbaAnaliseId; periodo?: PeriodoRelatorioId }) => {
+      const p = new URLSearchParams(params.toString());
+      const novaAba = mudanca.aba ?? aba;
+      const novoPeriodo = mudanca.periodo ?? periodo;
+      if (novaAba === "geral") p.delete("aba");
+      else p.set("aba", novaAba);
+      if (novoPeriodo === "mes") p.delete("periodo");
+      else p.set("periodo", novoPeriodo);
+      const qs = p.toString();
+      window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
+    },
+    [params, aba, periodo],
+  );
 
-  const analise = useMemo(() => {
-    if (!dados) return null;
-    const atual = intervaloDoPeriodo(dados.periodo, dados.ref);
-    const anterior = intervaloAnterior(dados.periodo, dados.ref);
-    const atuais = dados.lancamentos.filter((r) => dentroDo(atual, r.data));
-    const anteriores = dados.lancamentos.filter((r) => dentroDo(anterior, r.data));
-    const totais = somarTotais(atuais);
-    const totaisAnt = somarTotais(anteriores);
-    const hoje = isoDaData(dados.ref);
-    // Média só com gastos até hoje (o "Ano" inclui lançamentos futuros, como parcelas).
-    const gastoAteHoje = somarTotais(atuais.filter((r) => r.data <= hoje)).saidas;
-    const despesas = atuais.filter((r) => tipoFluxo(r.tipo) === "despesa");
+  // Enquanto o novo período carrega, mantém o anterior na tela (esmaecido).
+  const atualizando = dados != null && dados.chave !== chave;
+  const d = dados?.dados ?? null;
+
+  const ctx = useMemo<ContextoAnalise | null>(() => {
+    if (!d) return null;
+    const atual = intervaloDoPeriodo(d.periodo, d.ref);
+    const anterior = intervaloAnterior(d.periodo, d.ref);
     return {
+      dados: d,
+      periodo: d.periodo,
+      ref: d.ref,
       atual,
       anterior,
-      atuais,
-      totais,
-      varEntradas: variacaoPct(totais.entradas, totaisAnt.entradas),
-      varSaidas: variacaoPct(totais.saidas, totaisAnt.saidas),
-      mediaDiaria: gastoAteHoje / diasDecorridos(dados.periodo, dados.ref),
-      qtdDespesas: despesas.length,
-      ticketMedio: despesas.length ? totais.saidas / despesas.length : 0,
-      evolucao: evolucaoDoPeriodo(atuais, dados.periodo, dados.ref),
-      semFluxo: atuais.every((r) => tipoFluxo(r.tipo) == null),
+      atuais: d.lancamentos.filter((r) => dentroDo(atual, r.data)),
+      anteriores: d.lancamentos.filter((r) => dentroDo(anterior, r.data)),
+      comparacaoNo: COMPARACAO_NO[d.periodo],
+      bancoDoCartao: (nome) => d.bancoPorCartao[String(nome ?? "").trim()] ?? null,
     };
-  }, [dados]);
+  }, [d]);
 
-  const grupos = useMemo(
-    () => composicaoDeGastos(analise?.atuais ?? [], visao),
-    [analise, visao],
+  const irPara = useCallback(
+    (nova: AbaAnaliseId) => {
+      atualizarUrl({ aba: nova });
+      document.getElementById("topo-analise")?.scrollIntoView({ block: "start", behavior: "smooth" });
+    },
+    [atualizarUrl],
   );
-  const fatias = useMemo(
-    () => emFatias(grupos, composicaoAberta ? grupos.length : MAX_FATIAS),
-    [grupos, composicaoAberta],
-  );
-  const topGastos = useMemo(
-    () => maioresDespesas(analise?.atuais ?? [], TOP_MAX),
-    [analise],
-  );
-
-  const cartoes = dados?.cartoes;
-  const bancoDoCartao = useMemo(() => {
-    const mapa = new Map<string, string>();
-    for (const c of cartoes ?? []) {
-      if (c.banco) mapa.set(labelContaCartaoPersistido(c.nome), c.banco);
-    }
-    return (nome: string | null | undefined) => mapa.get(String(nome ?? "").trim()) ?? null;
-  }, [cartoes]);
-
-  const intervaloTexto = ref ? rotuloIntervalo(intervaloDoPeriodo(periodo, ref)) : "";
-  const pronto = !carregando && analise != null;
-  const resultado = analise ? analise.totais.entradas - analise.totais.saidas : 0;
 
   return (
-    <div className="flex flex-col gap-5 pb-6">
-      <header className="flex items-end justify-between gap-3">
+    <div className="flex flex-col gap-4 pb-8">
+      <header id="topo-analise" className="flex scroll-mt-4 items-end justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-lg font-semibold text-texto">Análise</h1>
-          <p className="mt-0.5 h-4 text-xs text-texto-3">{carregando ? "" : intervaloTexto}</p>
+          <p className="mt-0.5 h-4 text-xs text-texto-3">
+            {ctx && !atualizando ? rotuloIntervalo(ctx.atual) : ""}
+          </p>
         </div>
       </header>
 
@@ -228,206 +167,40 @@ export function RelatoriosScreen() {
         rotulo="Período"
         opcoes={PERIODOS}
         valor={periodo}
-        onChange={(p) => {
-          setPeriodo(p);
-          setComposicaoAberta(false);
-          setTopAberto(false);
-        }}
+        onChange={(p) => atualizarUrl({ periodo: p })}
       />
 
-      {pronto && dados?.erro ? (
-        <p className="text-sm text-negativo">Não foi possível carregar seus dados.</p>
+      <div className="sticky top-0 z-10 -mx-4 bg-fundo/75 px-4 backdrop-blur-xl">
+        <BarraAbas abas={ABAS} valor={aba} onChange={irPara} />
+      </div>
+
+      {d?.erro && !atualizando ? (
+        <div className="vidro-suave flex items-center justify-between gap-3 rounded-2xl px-4 py-3">
+          <p className="text-sm text-negativo">Não foi possível carregar seus dados.</p>
+          <Botao tamanho="sm" onClick={() => setTentativa((t) => t + 1)}>
+            <RefreshCw className="h-3.5 w-3.5" aria-hidden /> Tentar de novo
+          </Botao>
+        </div>
       ) : null}
 
-      {/* Resumo */}
-      <section>
-        <p className="text-xs text-texto-3">Resultado do período</p>
-        {pronto ? (
-          <p className="mt-0.5 text-[28px] font-semibold leading-tight text-texto">
-            <Valor valor={resultado} sinal />
-          </p>
+      <div
+        id={`painel-${aba}`}
+        role="tabpanel"
+        aria-labelledby={`aba-${aba}`}
+        className={`transition-opacity duration-200 ${atualizando ? "pointer-events-none opacity-50" : ""}`}
+      >
+        {!ctx ? (
+          <EsqueletoAnalise />
+        ) : aba === "geral" ? (
+          <AbaVisaoGeral ctx={ctx} irPara={irPara} />
+        ) : aba === "para-onde" ? (
+          <AbaParaOnde ctx={ctx} />
+        ) : aba === "cartao" ? (
+          <AbaCartao ctx={ctx} />
         ) : (
-          <Esqueleto className="mt-1 h-8 w-40" />
+          <AbaHabitos ctx={ctx} />
         )}
-
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          <Card className="px-3 py-2.5">
-            <p className="flex items-center gap-1 text-xs text-texto-3">
-              <ArrowDownLeft className="h-3.5 w-3.5 text-positivo" aria-hidden /> Entradas
-            </p>
-            <p className="mt-0.5 text-[15px] font-semibold text-positivo">
-              {pronto ? <Valor valor={analise.totais.entradas} /> : "…"}
-            </p>
-            <p className="mt-0.5 truncate text-[11px]">
-              {pronto ? <Variacao pct={analise.varEntradas} subirEhBom /> : " "}
-            </p>
-          </Card>
-          <Card className="px-3 py-2.5">
-            <p className="flex items-center gap-1 text-xs text-texto-3">
-              <ArrowUpRight className="h-3.5 w-3.5 text-negativo" aria-hidden /> Saídas
-            </p>
-            <p className="mt-0.5 text-[15px] font-semibold text-negativo">
-              {pronto ? <Valor valor={analise.totais.saidas} /> : "…"}
-            </p>
-            <p className="mt-0.5 truncate text-[11px]">
-              {pronto ? <Variacao pct={analise.varSaidas} subirEhBom={false} /> : " "}
-            </p>
-          </Card>
-        </div>
-
-        <Card className="mt-2 grid grid-cols-3 divide-x divide-borda py-2.5">
-          {[
-            { rotulo: "Gasto médio/dia", conteudo: pronto ? <Valor valor={analise.mediaDiaria} /> : "…" },
-            { rotulo: "Despesas", conteudo: pronto ? analise.qtdDespesas : "…" },
-            { rotulo: "Ticket médio", conteudo: pronto ? <Valor valor={analise.ticketMedio} /> : "…" },
-          ].map((s) => (
-            <div key={s.rotulo} className="min-w-0 px-3">
-              <p className="truncate text-[11px] text-texto-3">{s.rotulo}</p>
-              <p className="valor mt-0.5 truncate text-sm font-semibold text-texto">{s.conteudo}</p>
-            </div>
-          ))}
-        </Card>
-        {pronto && (analise.varEntradas != null || analise.varSaidas != null) ? (
-          <p className="mt-1.5 text-[11px] text-texto-3">
-            Comparação {ROTULO_COMPARACAO[periodo]} ({rotuloIntervalo(analise.anterior)})
-          </p>
-        ) : null}
-      </section>
-
-      {pronto && analise.semFluxo ? (
-        <Card className="flex flex-col items-center px-4 py-8 text-center">
-          <Inbox className="h-8 w-8 text-texto-3" strokeWidth={1.5} aria-hidden />
-          <p className="mt-3 text-sm text-texto-2">Nenhuma entrada ou saída neste período.</p>
-          <Link href="/lancar" className="mt-1 inline-flex h-9 items-center text-xs font-semibold text-marca">
-            Fazer um lançamento
-          </Link>
-        </Card>
-      ) : (
-        <>
-          {/* Evolução */}
-          <Secao titulo="Entradas vs saídas">
-            <Card className="p-3">
-              <div className="mb-2 flex items-center gap-4 text-xs text-texto-2">
-                <span className="flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full" style={{ background: COR_ENTRADA }} />
-                  Entradas
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full" style={{ background: COR_SAIDA }} />
-                  Saídas
-                </span>
-              </div>
-              {pronto ? (
-                <GraficoEvolucao dados={analise.evolucao} />
-              ) : (
-                <Esqueleto className="h-48 w-full" />
-              )}
-            </Card>
-          </Secao>
-
-          {/* Composição */}
-          <Secao titulo="Para onde foi o dinheiro">
-            <Card className="p-3">
-              <Segmentado
-                rotulo="Agrupar gastos por"
-                opcoes={VISOES}
-                valor={visao}
-                onChange={(v) => {
-                  setVisao(v);
-                  setComposicaoAberta(false);
-                }}
-                className="mb-3"
-              />
-              {!pronto ? (
-                <div className="flex flex-col gap-3">
-                  <Esqueleto className="h-2 rounded-full" />
-                  {[0, 1, 2].map((i) => (
-                    <Esqueleto key={i} className="h-8" />
-                  ))}
-                </div>
-              ) : fatias.length === 0 ? (
-                <p className="py-3 text-center text-xs text-texto-3">
-                  {visao === "tag"
-                    ? "Nenhum gasto com tag neste período."
-                    : "Nenhum gasto neste período."}
-                </p>
-              ) : (
-                <>
-                  <ListaComposicao fatias={fatias} visao={visao} bancoDoCartao={bancoDoCartao} />
-                  {grupos.length > MAX_FATIAS ? (
-                    <button
-                      type="button"
-                      onClick={() => setComposicaoAberta((v) => !v)}
-                      className="mt-1 h-9 w-full touch-manipulation rounded-xl text-xs font-semibold text-marca hover:bg-white/[0.04]"
-                    >
-                      {composicaoAberta ? "Mostrar menos" : `Ver todas (${grupos.length})`}
-                    </button>
-                  ) : null}
-                  {visao === "tag" ? (
-                    <p className="mt-1 text-[11px] text-texto-3">
-                      Um gasto com várias tags conta em cada uma delas.
-                    </p>
-                  ) : null}
-                </>
-              )}
-            </Card>
-          </Secao>
-
-          {/* Maiores gastos */}
-          <Secao titulo="Maiores gastos">
-            <Card className="px-3">
-              {!pronto ? (
-                <div className="flex flex-col gap-3 py-3">
-                  {[0, 1, 2].map((i) => (
-                    <Esqueleto key={i} className="h-9" />
-                  ))}
-                </div>
-              ) : topGastos.length === 0 ? (
-                <p className="py-4 text-center text-xs text-texto-3">Nenhum gasto neste período.</p>
-              ) : (
-                <>
-                  <ul className="divide-y divide-borda">
-                    {topGastos.slice(0, topAberto ? TOP_MAX : TOP_INICIAL).map((g) => {
-                      const bancoId = bancoDoCartao(g.conta_cartao);
-                      return (
-                        <li key={g.id}>
-                          <LinhaLista
-                            icone={
-                              bancoId ? (
-                                <LogoBanco bancoId={bancoId} className="h-full w-full" />
-                              ) : (
-                                <IconeCategoria categoria={g.tag} />
-                              )
-                            }
-                            titulo={g.descricao?.trim() || "Despesa"}
-                            subtitulo={[
-                              g.tag?.trim() || "Sem categoria",
-                              g.conta_cartao?.trim(),
-                              dataCurta(g.data),
-                            ]
-                              .filter(Boolean)
-                              .join(" · ")}
-                            direita={<Valor valor={-valorNumerico(g.valor)} />}
-                          />
-                        </li>
-                      );
-                    })}
-                  </ul>
-                  {topGastos.length > TOP_INICIAL ? (
-                    <button
-                      type="button"
-                      onClick={() => setTopAberto((v) => !v)}
-                      className="mb-1 h-9 w-full touch-manipulation rounded-xl border-t border-borda text-xs font-semibold text-marca hover:bg-white/[0.04]"
-                    >
-                      {topAberto ? "Mostrar menos" : `Ver top ${topGastos.length}`}
-                    </button>
-                  ) : null}
-                </>
-              )}
-            </Card>
-          </Secao>
-        </>
-      )}
+      </div>
     </div>
   );
 }
