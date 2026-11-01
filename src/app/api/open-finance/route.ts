@@ -83,12 +83,18 @@ export async function POST(request: Request) {
 
     const resultado: { nome: string; novas: number; duplicadas: number }[] = [];
     const atualizacoes: { ultima: string | null; proxima: string | null }[] = [];
-    for (const itemId of pluggyItemIds()) {
-      // Informativo: se falhar, a sincronização segue normalmente.
-      const item = await obterItem(apiKey, itemId).catch(() => null);
+    const porItem = await Promise.all(
+      pluggyItemIds().map(async (itemId) => ({
+        // Informativo: se falhar, a sincronização segue normalmente.
+        item: await obterItem(apiKey, itemId).catch(() => null),
+        contas: await listarContasDoItem(apiKey, itemId),
+      })),
+    );
+    const idsAtuais = new Set(porItem.flatMap((i) => i.contas.map((c) => c.id)));
+    for (const { item, contas } of porItem) {
       if (item) atualizacoes.push({ ultima: item.lastUpdatedAt, proxima: item.nextAutoSyncAt });
-      for (const contaPluggy of await listarContasDoItem(apiKey, itemId)) {
-        const conta = await obterOuCriarConta(db, contaPluggy);
+      for (const contaPluggy of contas) {
+        const conta = await obterOuCriarConta(db, contaPluggy, idsAtuais);
         const cartao = contaPluggy.type === "CREDIT";
         const transacoes = (
           await listarTransacoes(apiKey, contaPluggy.id, dataInicial(conta))
@@ -141,7 +147,10 @@ function dataInicial(conta: ContaApp): string {
   d.setDate(
     d.getDate() - (conta.ultima_sincronizacao ? DIAS_SOBREPOSICAO : DIAS_HISTORICO_INICIAL),
   );
-  return d.toISOString().slice(0, 10);
+  const calculada = d.toISOString().slice(0, 10);
+  // A partir de quando o usuário passou a usar o app (ex.: 2026-11-01): nada antes disso entra.
+  const inicioUso = process.env.FINFLOW_DATA_INICIO?.trim();
+  return inicioUso && /^\d{4}-\d{2}-\d{2}$/.test(inicioUso) && inicioUso > calculada ? inicioUso : calculada;
 }
 
 function bancoPorNome(nome: string): string | null {
@@ -160,7 +169,15 @@ function bancoPorNome(nome: string): string | null {
  * Liga a conta da Pluggy a uma conta do app: pelo id da Pluggy, ou pelo número da
  * conta (caso ela já tenha sido criada por um OFX). Se não existir, cria.
  */
-async function obterOuCriarConta(db: SupabaseClient, p: PluggyConta): Promise<ContaApp> {
+/**
+ * `idsAtuais`: contas que a Pluggy devolveu nesta sincronização. Uma conta do app ligada a
+ * um id que não existe mais (conexão refeita) pode ser religada à conta nova do mesmo número.
+ */
+async function obterOuCriarConta(
+  db: SupabaseClient,
+  p: PluggyConta,
+  idsAtuais: ReadonlySet<string>,
+): Promise<ContaApp> {
   const campos = "id, nome, tipo, numero_conta, pluggy_account_id, ultima_sincronizacao";
   const { data: contas, error } = await db.from("contas").select(campos);
   if (error) throw error;
@@ -171,11 +188,12 @@ async function obterOuCriarConta(db: SupabaseClient, p: PluggyConta): Promise<Co
 
   const digitos = (s: string | null) => (s ?? "").replace(/\D/g, "");
   const numeroPluggy = digitos(p.number);
-  if (p.type === "BANK" && numeroPluggy) {
+  const cartaoPluggy = p.type === "CREDIT";
+  if (numeroPluggy) {
     const porNumero = lista.find(
       (c) =>
-        !c.pluggy_account_id &&
-        c.tipo !== "cartao_credito" &&
+        (!c.pluggy_account_id || !idsAtuais.has(c.pluggy_account_id)) &&
+        (c.tipo === "cartao_credito") === cartaoPluggy &&
         digitos(c.numero_conta) &&
         (numeroPluggy.startsWith(digitos(c.numero_conta)) ||
           digitos(c.numero_conta).startsWith(numeroPluggy)),
