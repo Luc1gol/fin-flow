@@ -50,8 +50,9 @@ function hojeBrasilia(): string {
  * ("2026-11-10T00:00:00Z"); converter para o fuso de Brasília voltaria um dia (09/11).
  */
 function dataIso(valor: string | null | undefined): string | null {
-  const m = valor ? /^d{4}-d{2}-d{2}/.exec(valor) : null;
-  return m ? m[0] : null;
+  if (!valor) return null;
+  const d = new Date(valor);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
 }
 
 function diaDoMes(dataIsoValor: string | null): number | null {
