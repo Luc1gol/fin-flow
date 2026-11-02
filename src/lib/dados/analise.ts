@@ -6,6 +6,7 @@
  */
 import { supabase } from "@/lib/supabase";
 import { labelContaCartaoPersistido } from "@/lib/conta-cartao-lancamento";
+import { BANCOS } from "@/data/bancos";
 import { coalesceTagsExtrasFromUnknown } from "@/lib/tags-extras-coalesce";
 import type {
   ContaCartaoAnalise,
@@ -43,6 +44,8 @@ function mapLancamento(item: Record<string, unknown>): LancamentoRelatorioRow {
     meio_pagamento: textoOuNull(item.meio_pagamento),
     recorrencia_id: textoOuNull(item.recorrencia_id),
     tags_extras: coalesceTagsExtrasFromUnknown(item.tags_extras),
+    conta_id: textoOuNull(item.conta_id),
+    banco: null,
   };
 }
 
@@ -57,7 +60,7 @@ async function buscarLancamentos(
     const { data, error } = await supabase
       .from("lancamentos")
       .select(
-        "id, tipo, valor, data, descricao, tag, conta_cartao, meio_pagamento, recorrencia_id, tags_extras",
+        "id, tipo, valor, data, descricao, tag, conta_cartao, meio_pagamento, recorrencia_id, tags_extras, conta_id",
       )
       .eq("user_id", userId)
       .in("tipo", ["receita", "despesa"])
@@ -143,6 +146,32 @@ async function buscarCartoes(userId: string, faturasDesde: string): Promise<Cart
   return { contasCartao, faturas, bancoPorCartao };
 }
 
+/** Conta (id) → id do banco em `BANCOS` (pelo cartão vinculado ou pelo nome da conta); senão, o nome da conta. */
+async function buscarBancoDasContas(userId: string): Promise<Map<string, string>> {
+  const [cont, cart] = await Promise.all([
+    supabase.from("contas").select("id, nome, banco, cartao_id").eq("user_id", userId),
+    supabase.from("cartoes").select("id, banco").eq("user_id", userId),
+  ]);
+  if (cont.error) console.error("[analise] bancos das contas:", cont.error);
+  const bancoDoCartao = new Map(
+    ((cart.data ?? []) as Record<string, unknown>[]).map((r) => [String(r.id), textoOuNull(r.banco)]),
+  );
+  const mapa = new Map<string, string>();
+  for (const r of (cont.data ?? []) as Record<string, unknown>[]) {
+    const cartaoId = textoOuNull(r.cartao_id);
+    const banco =
+      (cartaoId ? bancoDoCartao.get(cartaoId) : null) ?? textoOuNull(r.banco) ?? textoOuNull(r.nome);
+    if (banco) mapa.set(String(r.id), banco);
+  }
+  return mapa;
+}
+
+/** Nome do banco para exibir; ids desconhecidos (ex.: nome da conta) passam como estão. */
+function nomeDoBanco(bancoId: string): string {
+  const banco = BANCOS.find((b) => b.id === bancoId);
+  return banco && banco.id !== "outros" ? banco.nome : bancoId;
+}
+
 /**
  * Tudo que a Análise precisa numa ida: lançamentos de `desde` a `ate` e os dados dos cartões.
  * Retorna `null` sem usuário logado.
@@ -155,9 +184,18 @@ export async function carregarDadosAnalise(janela: {
   const { data, error } = await supabase.auth.getUser();
   if (error || !data.user) return null;
   const userId = data.user.id;
-  const [lancamentos, cartoes] = await Promise.all([
+  const [lancamentos, cartoes, bancoDaConta] = await Promise.all([
     buscarLancamentos(userId, janela.desde, janela.ate),
     buscarCartoes(userId, janela.faturasDesde),
+    buscarBancoDasContas(userId),
   ]);
+  for (const l of lancamentos) {
+    const bancoId = l.conta_id
+      ? bancoDaConta.get(l.conta_id)
+      : l.conta_cartao
+        ? cartoes.bancoPorCartao[l.conta_cartao]
+        : undefined;
+    l.banco = bancoId ? nomeDoBanco(bancoId) : null;
+  }
   return { lancamentos, ...cartoes };
 }

@@ -14,7 +14,7 @@ export type PontoFluxo = {
 };
 
 /** Visão da composição de gastos. */
-export type VisaoComposicao = "categoria" | "meio" | "tag";
+export type VisaoComposicao = "categoria" | "meio" | "banco" | "tag";
 
 /** Meio de pagamento normalizado para a análise. */
 export type MeioAnalise = "Crédito" | "Débito" | "Pix" | "Dinheiro" | "Outros";
@@ -46,6 +46,10 @@ export type LancamentoRelatorioRow = {
   meio_pagamento: string | null;
   recorrencia_id: string | null;
   tags_extras: string[];
+  /** Conta de origem (importados do banco); null nos lançados à mão. */
+  conta_id: string | null;
+  /** Nome do banco de onde saiu o dinheiro (ex.: "C6 Bank"); null se não der para saber. */
+  banco: string | null;
 };
 
 /** Totais de um período (transferências nunca entram). */

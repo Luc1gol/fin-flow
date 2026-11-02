@@ -1,12 +1,14 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChevronDown, CircleEllipsis, Hash, Inbox } from "lucide-react";
+import { ChevronDown, CircleEllipsis, Hash, Inbox, PenLine } from "lucide-react";
+import { BANCOS } from "@/data/bancos";
 import type { FatiaGasto, MeioAnalise, VisaoComposicao } from "@/types/relatorios";
 import { Card, Valor } from "@/components/ui/base";
 import { IconeCategoria } from "@/components/ui/IconeCategoria";
 import { dataCurta, variacaoPct } from "@/components/relatorios/dados";
 import {
+  SEM_BANCO,
   composicao,
   lancamentosDoGrupo,
   meioDoLancamento,
@@ -18,6 +20,7 @@ import {
   BarraFina,
   Bolha,
   ICONE_MEIO,
+  LogoBanco,
   Segmentado,
   Variacao,
   Vazio,
@@ -27,7 +30,8 @@ import {
 
 const VISOES: readonly { id: VisaoComposicao; label: string }[] = [
   { id: "categoria", label: "Categoria" },
-  { id: "meio", label: "Meio de pagamento" },
+  { id: "meio", label: "Pagamento" },
+  { id: "banco", label: "Banco" },
   { id: "tag", label: "Tag" },
 ];
 
@@ -40,8 +44,13 @@ const ROTULO_MEIO: Record<MeioAnalise, string> = {
 };
 
 function IconeGrupo({ fatia, visao }: { fatia: FatiaGasto; visao: VisaoComposicao }) {
+  if (visao === "banco" && fatia.nome !== SEM_BANCO && fatia.nome !== "Outros") {
+    const bancoId = BANCOS.find((b) => b.nome === fatia.nome)?.id ?? null;
+    return <LogoBanco bancoId={bancoId} className="h-9 w-9" />;
+  }
   let icone;
   if (visao === "tag") icone = <Hash className="h-4 w-4" aria-hidden />;
+  else if (visao === "banco") icone = <PenLine className="h-4 w-4" aria-hidden />;
   else if (visao === "meio") {
     const I = ICONE_MEIO[fatia.nome as MeioAnalise] ?? CircleEllipsis;
     icone = <I className="h-4 w-4" aria-hidden />;
@@ -114,7 +123,7 @@ function DetalheGrupo({
                 {[
                   dataCurta(l.data),
                   visao === "categoria" && fatia.nome !== "Outros" ? null : l.tag || "Sem categoria",
-                  visao === "meio" ? l.conta_cartao : meioDoLancamento(l),
+                  visao === "meio" || visao === "banco" ? l.conta_cartao : meioDoLancamento(l),
                 ]
                   .filter(Boolean)
                   .join(" · ")}

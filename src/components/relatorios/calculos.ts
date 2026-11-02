@@ -28,6 +28,7 @@ import {
 type L = LancamentoRelatorioRow;
 
 export const SEM_CATEGORIA = "Sem categoria";
+export const SEM_BANCO = "Lançados à mão";
 
 /** Paleta das fatias (9 posições: 8 grupos + "Outros" cinza). */
 export const PALETA = [
@@ -93,6 +94,7 @@ function chaveNome(descricao: string | null): string {
 export function gruposDe(r: L, visao: VisaoComposicao): string[] {
   if (visao === "categoria") return [r.tag?.trim() || SEM_CATEGORIA];
   if (visao === "meio") return [meioDoLancamento(r)];
+  if (visao === "banco") return [r.banco ?? SEM_BANCO];
   return [...new Set(r.tags_extras.map((t) => String(t ?? "").trim()).filter(Boolean))];
 }
 

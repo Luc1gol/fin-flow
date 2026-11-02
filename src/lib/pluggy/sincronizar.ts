@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { BANCOS } from "@/data/bancos";
 import { normalizarTexto, type RegraUsuario } from "@/lib/importacao/classificar";
-import { enfileirarTransacoes } from "@/lib/importacao/fila";
+import { enfileirarTransacoes, parearTransferencias } from "@/lib/importacao/fila";
 import {
   autenticar,
   listarContasDoItem,
@@ -333,6 +333,8 @@ export async function sincronizarBanco(
     }
     await salvarInvestimentos(db, userId, apiKey, itemId);
   }
+  // Com todas as contas em dia, junta os dois lados das transferências entre elas.
+  await parearTransferencias(db, userId).catch((e) => console.error("[open-finance] pareamento", e));
   await registrarPatrimonio(db, userId);
 
   // Data mais antiga entre os bancos: é ela que limita o que já chegou.
