@@ -237,24 +237,7 @@ function CardInvestimentos({ ctx }: { ctx: ContextoAnalise }) {
   const dif = liquido - anterior;
   const resgatouMais = liquido < 0;
 
-  if (aplicado === 0 && resgatado === 0) {
-    return (
-      <Secao titulo="Investimentos">
-        <Card className="flex items-center gap-3 px-4 py-3.5">
-          <Bolha cor="#4f8cff" className="h-9 w-9">
-            <Landmark className="h-4 w-4" aria-hidden />
-          </Bolha>
-          <p className="min-w-0 flex-1 text-xs text-texto-3">
-            Nenhuma aplicação ou resgate neste período.
-            {anterior !== 0 ? (
-              <> Investido {ctx.comparacaoNo}: {brlInteiro(anterior)}.</>
-            ) : null}{" "}
-            Use a categoria <span className="text-texto-2">Investimentos</span> para registrar.
-          </p>
-        </Card>
-      </Secao>
-    );
-  }
+  const semMovimento = aplicado === 0 && resgatado === 0;
 
   return (
     <Secao titulo="Investimentos">
@@ -268,7 +251,9 @@ function CardInvestimentos({ ctx }: { ctx: ContextoAnalise }) {
             <p className={`text-xl font-semibold leading-tight ${resgatouMais ? "text-alerta" : "text-texto"}`}>
               <Valor valor={Math.abs(liquido)} />
             </p>
-            {anterior !== 0 || liquido !== 0 ? (
+            {semMovimento ? (
+              <p className="mt-0.5 text-[11px] text-texto-3">Sem lançamentos no período</p>
+            ) : (
               <p className="mt-0.5 text-[11px] text-texto-3">
                 {dif === 0 ? (
                   <>Igual {ctx.comparacaoNo}</>
@@ -281,7 +266,7 @@ function CardInvestimentos({ ctx }: { ctx: ContextoAnalise }) {
                   </>
                 )}
               </p>
-            ) : null}
+            )}
           </div>
         </div>
 
