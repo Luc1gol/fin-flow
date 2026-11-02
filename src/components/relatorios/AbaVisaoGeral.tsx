@@ -234,9 +234,27 @@ export function AbaVisaoGeral({
 function CardInvestimentos({ ctx }: { ctx: ContextoAnalise }) {
   const { aplicado, resgatado, liquido } = ctx.investAtual;
   const anterior = ctx.investAnterior.liquido;
-  if (aplicado === 0 && resgatado === 0 && anterior === 0) return null;
   const dif = liquido - anterior;
   const resgatouMais = liquido < 0;
+
+  if (aplicado === 0 && resgatado === 0) {
+    return (
+      <Secao titulo="Investimentos">
+        <Card className="flex items-center gap-3 px-4 py-3.5">
+          <Bolha cor="#4f8cff" className="h-9 w-9">
+            <Landmark className="h-4 w-4" aria-hidden />
+          </Bolha>
+          <p className="min-w-0 flex-1 text-xs text-texto-3">
+            Nenhuma aplicação ou resgate neste período.
+            {anterior !== 0 ? (
+              <> Investido {ctx.comparacaoNo}: {brlInteiro(anterior)}.</>
+            ) : null}{" "}
+            Use a categoria <span className="text-texto-2">Investimentos</span> para registrar.
+          </p>
+        </Card>
+      </Secao>
+    );
+  }
 
   return (
     <Secao titulo="Investimentos">
