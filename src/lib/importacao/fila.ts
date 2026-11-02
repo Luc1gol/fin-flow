@@ -216,3 +216,102 @@ async function removerIguaisJaNaFila(
     return true;
   });
 }
+
+type LinhaPareamento = {
+  id: string;
+  conta_id: string;
+  data: string;
+  valor: number | string;
+  memo: string;
+  status: string;
+  sugestao_tipo: string;
+  sugestao_descricao: string;
+  sugestao_meio: string | null;
+  lancamentos: { tipo: string } | null;
+};
+
+/**
+ * Dinheiro que sai de uma conta sua e entra em outra (ex.: Itaú → C6, ou a fatura do C6
+ * paga pelo Itaú) é transferência, mesmo quando o texto de um dos bancos não deixa claro.
+ * Procura, na fila, uma saída e uma entrada de mesmo valor em contas diferentes, com até
+ * 2 dias de diferença, em que pelo menos um dos lados já foi reconhecido como transferência
+ * (ex.: "Pix recebido de <você>"). Confirma os dois lados pendentes como transferência,
+ * para não contarem como gasto nem como entrada. Devolve quantas transações confirmou.
+ */
+export async function parearTransferencias(db: SupabaseClient, userId: string): Promise<number> {
+  const campos =
+    "id, conta_id, data, valor, memo, status, sugestao_tipo, sugestao_descricao, sugestao_meio, lancamentos(tipo)";
+  const { data: pendentes } = await db
+    .from("transacoes_importadas")
+    .select(campos)
+    .eq("user_id", userId)
+    .eq("status", "pendente")
+    .order("data", { ascending: false })
+    .limit(500);
+  if (!pendentes?.length) return 0;
+
+  const desloca = (iso: string, dias: number) => {
+    const d = new Date(`${iso}T12:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + dias);
+    return d.toISOString().slice(0, 10);
+  };
+  const datas = pendentes.map((p) => p.data as string).sort();
+  const { data: proximas } = await db
+    .from("transacoes_importadas")
+    .select(campos)
+    .eq("user_id", userId)
+    .in("status", ["pendente", "confirmada"])
+    .gte("data", desloca(datas[0]!, -2))
+    .lte("data", desloca(datas[datas.length - 1]!, 2));
+
+  const linhas = (proximas ?? []) as unknown as LinhaPareamento[];
+  const ehTransferencia = (l: LinhaPareamento) =>
+    (l.status === "pendente" ? l.sugestao_tipo : l.lancamentos?.tipo) === "transferencia";
+  const dias = (a: string, b: string) =>
+    Math.abs(new Date(`${a}T12:00:00Z`).getTime() - new Date(`${b}T12:00:00Z`).getTime()) / 86_400_000;
+
+  const usadas = new Set<string>();
+  const confirmar = new Map<string, LinhaPareamento>();
+  for (const p of pendentes as unknown as LinhaPareamento[]) {
+    if (usadas.has(p.id)) continue;
+    const valor = Number(p.valor);
+    const par = linhas.find(
+      (c) =>
+        c.id !== p.id &&
+        !usadas.has(c.id) &&
+        c.conta_id !== p.conta_id &&
+        Math.sign(Number(c.valor)) === -Math.sign(valor) &&
+        Math.abs(Math.abs(Number(c.valor)) - Math.abs(valor)) < 0.005 &&
+        dias(c.data, p.data) <= 2 &&
+        (ehTransferencia(c) || ehTransferencia(p)),
+    );
+    if (!par) continue;
+    usadas.add(p.id);
+    usadas.add(par.id);
+    confirmar.set(p.id, p);
+    if (par.status === "pendente") confirmar.set(par.id, par);
+  }
+  if (confirmar.size === 0) return 0;
+
+  const itens: ItemConfirmado[] = [...confirmar.values()].map((l) => ({
+    transacao: {
+      id: l.id,
+      conta_id: l.conta_id,
+      valor: Number(l.valor),
+      data: l.data,
+      memo: l.memo,
+      sugestao_descricao: l.sugestao_descricao,
+      sugestao_meio: (l.sugestao_meio as MeioMovimento | null) ?? null,
+    },
+    tipo: "transferencia",
+    descricao: l.sugestao_tipo === "transferencia" ? l.sugestao_descricao : "Transferência entre minhas contas",
+    categoria: null,
+  }));
+  try {
+    await criarLancamentosConfirmados(db, userId, itens, { aprender: false });
+    return itens.length;
+  } catch (e) {
+    console.error("[fila] pareamento de transferências", e);
+    return 0;
+  }
+}
