@@ -78,6 +78,11 @@ export type FaturaAnalise = {
 };
 
 /** Dados brutos carregados para a análise de um período. */
+export type MovimentoInvestimento = { data: string; valor: number };
+
+/** Investimentos de um período: o que foi aplicado, resgatado e o saldo (aplicado − resgatado). */
+export type ResumoInvestimentos = { aplicado: number; resgatado: number; liquido: number };
+
 export type DadosAnalise = {
   periodo: PeriodoRelatorioId;
   /** "Agora" no momento da busca: base de todas as janelas de datas. */
@@ -88,5 +93,7 @@ export type DadosAnalise = {
   faturas: FaturaAnalise[];
   /** Cartões manuais (nome persistido "Cartão X" → banco), para logos. */
   bancoPorCartao: Record<string, string>;
+  /** Aplicações (valor negativo) e resgates (positivo) em investimentos. Fora de entradas e saídas. */
+  investimentos: MovimentoInvestimento[];
   erro: boolean;
 };

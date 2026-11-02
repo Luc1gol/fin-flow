@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { RefreshCw } from "lucide-react";
 import type { AbaAnaliseId, DadosAnalise, PeriodoRelatorioId } from "@/types/relatorios";
 import { carregarDadosAnalise } from "@/lib/dados/analise";
+import { resumirInvestimentos } from "@/components/relatorios/calculos";
 import { Botao } from "@/components/ui/base";
 import {
   COMPARACAO_NO,
@@ -64,6 +65,7 @@ async function carregarAnalise(periodo: PeriodoRelatorioId): Promise<DadosAnalis
     contasCartao: [],
     faturas: [],
     bancoPorCartao: {},
+    investimentos: [],
     erro: false,
   };
   try {
@@ -139,6 +141,8 @@ export function RelatoriosScreen() {
       anterior,
       atuais: d.lancamentos.filter((r) => dentroDo(atual, r.data)),
       anteriores: d.lancamentos.filter((r) => dentroDo(anterior, r.data)),
+      investAtual: resumirInvestimentos(d.investimentos.filter((r) => dentroDo(atual, r.data))),
+      investAnterior: resumirInvestimentos(d.investimentos.filter((r) => dentroDo(anterior, r.data))),
       comparacaoNo: COMPARACAO_NO[d.periodo],
       bancoDoCartao: (nome) => d.bancoPorCartao[String(nome ?? "").trim()] ?? null,
     };

@@ -7,11 +7,13 @@
 import { supabase } from "@/lib/supabase";
 import { labelContaCartaoPersistido } from "@/lib/conta-cartao-lancamento";
 import { BANCOS } from "@/data/bancos";
+import { ehCategoriaInvestimento } from "@/lib/investimentos";
 import { coalesceTagsExtrasFromUnknown } from "@/lib/tags-extras-coalesce";
 import type {
   ContaCartaoAnalise,
   FaturaAnalise,
   LancamentoRelatorioRow,
+  MovimentoInvestimento,
 } from "@/types/relatorios";
 
 const PAGINA = 1000;
@@ -146,6 +148,34 @@ async function buscarCartoes(userId: string, faturasDesde: string): Promise<Cart
   return { contasCartao, faturas, bancoPorCartao };
 }
 
+/**
+ * Aplicações (negativo) e resgates (positivo) com categoria "Investimentos": as transferências
+ * e também receitas/despesas antigas, de antes dessa regra existir.
+ */
+async function buscarInvestimentos(userId: string, desde: string, ate: string): Promise<MovimentoInvestimento[]> {
+  const { data, error } = await supabase
+    .from("lancamentos")
+    .select("tipo, valor, data, tag")
+    .eq("user_id", userId)
+    .ilike("tag", "investimento%")
+    .gte("data", desde)
+    .lte("data", ate);
+  if (error) {
+    console.error("[analise] investimentos:", error);
+    return [];
+  }
+  return ((data ?? []) as Record<string, unknown>[])
+    .filter((r) => ehCategoriaInvestimento(textoOuNull(r.tag)))
+    .map((r) => {
+      const tipo = String(r.tipo ?? "");
+      const v = numero(r.valor);
+      return {
+        data: String(r.data ?? "").slice(0, 10),
+        valor: tipo === "despesa" ? -Math.abs(v) : tipo === "receita" ? Math.abs(v) : v,
+      };
+    });
+}
+
 /** Conta (id) → id do banco em `BANCOS` (pelo cartão vinculado ou pelo nome da conta); senão, o nome da conta. */
 async function buscarBancoDasContas(userId: string): Promise<Map<string, string>> {
   const [cont, cart] = await Promise.all([
@@ -180,15 +210,20 @@ export async function carregarDadosAnalise(janela: {
   desde: string;
   ate: string;
   faturasDesde: string;
-}): Promise<({ lancamentos: LancamentoRelatorioRow[] } & CartoesAnalise) | null> {
+}): Promise<
+  ({ lancamentos: LancamentoRelatorioRow[]; investimentos: MovimentoInvestimento[] } & CartoesAnalise) | null
+> {
   const { data, error } = await supabase.auth.getUser();
   if (error || !data.user) return null;
   const userId = data.user.id;
-  const [lancamentos, cartoes, bancoDaConta] = await Promise.all([
+  const [todos, cartoes, bancoDaConta, investimentos] = await Promise.all([
     buscarLancamentos(userId, janela.desde, janela.ate),
     buscarCartoes(userId, janela.faturasDesde),
     buscarBancoDasContas(userId),
+    buscarInvestimentos(userId, janela.desde, janela.ate),
   ]);
+  // Receita/despesa antiga com categoria "Investimentos" já vem em `investimentos`.
+  const lancamentos = todos.filter((l) => !ehCategoriaInvestimento(l.tag));
   for (const l of lancamentos) {
     const bancoId = l.conta_id
       ? bancoDaConta.get(l.conta_id)
@@ -197,5 +232,5 @@ export async function carregarDadosAnalise(janela: {
         : undefined;
     l.banco = bancoId ? nomeDoBanco(bancoId) : null;
   }
-  return { lancamentos, ...cartoes };
+  return { lancamentos, investimentos, ...cartoes };
 }

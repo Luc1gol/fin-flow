@@ -16,6 +16,7 @@ import { TagsExtrasField } from "@/components/form/TagsExtrasField";
 import { Botao, campoClasse } from "@/components/ui/base";
 import { IconeCategoria } from "@/components/ui/IconeCategoria";
 import { SeletorCategoria } from "@/components/ui/SeletorCategoria";
+import { ajustarInvestimento } from "@/lib/investimentos";
 import { ExtratoFolha } from "@/components/extrato/ExtratoFolha";
 import type { LancamentoExtrato } from "@/types/lancamento";
 import { mapLancamentoRowFromDb } from "@/lib/map-lancamento-extrato";
@@ -196,6 +197,18 @@ export function ExtratoEditarLancamentoModal({
     };
   }, []);
 
+  /**
+   * Valor (e tipo) a gravar: transferência mantém o sentido (saída negativa); receita/despesa
+   * com categoria "Investimentos" vira aplicação/resgate (transferência).
+   */
+  const valorETipo = useCallback(
+    (novoValor: number, tagDb: string | null) =>
+      item.tipo === "transferencia"
+        ? { valor: item.transferenciaSaida ? -Math.abs(novoValor) : Math.abs(novoValor) }
+        : ajustarInvestimento(item.tipo, novoValor, tagDb),
+    [item.tipo, item.transferenciaSaida],
+  );
+
   const categoriasLista = useMemo(() => {
     const uniq = new Set<string>(categoriasSalvas);
     const trimmed = categoria.trim();
@@ -246,7 +259,7 @@ export function ExtratoEditarLancamentoModal({
             .from("lancamentos")
             .update({
               descricao: p.novaDesc,
-              valor: p.novoValor,
+              ...valorETipo(p.novoValor, p.tagDb),
               tag: p.tagDb,
               conta_cartao: p.contaDb,
               data: p.novaData,
@@ -325,7 +338,7 @@ export function ExtratoEditarLancamentoModal({
         setScopeLoading(false);
       }
     },
-    [item, observacao, onClose, onSaved, onRefreshList],
+    [item, observacao, onClose, onSaved, onRefreshList, valorETipo],
   );
 
   const handleSubmit = useCallback(
@@ -495,7 +508,7 @@ export function ExtratoEditarLancamentoModal({
           .from("lancamentos")
           .update({
             descricao: novaDesc,
-            valor: novoValor,
+            ...valorETipo(novoValor, tagDb),
             tag: tagDb,
             conta_cartao: contaDb,
             data: novaData,
@@ -527,6 +540,7 @@ export function ExtratoEditarLancamentoModal({
       }
     },
     [
+      valorETipo,
       descricao,
       observacao,
       divididoCom,
