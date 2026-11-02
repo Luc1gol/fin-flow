@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo } from "react";
-import { ArrowDownLeft, ArrowUpRight, ChevronRight, Inbox, PiggyBank, CalendarDays } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, ChevronRight, Inbox, PiggyBank, CalendarDays, Landmark } from "lucide-react";
 import type { AbaAnaliseId } from "@/types/relatorios";
 import { Card, Secao, Valor } from "@/components/ui/base";
 import { IconeCategoria } from "@/components/ui/IconeCategoria";
@@ -161,6 +161,8 @@ export function AbaVisaoGeral({
         </Card>
       </div>
 
+      <CardInvestimentos ctx={ctx} />
+
       {/* Últimos 6 meses */}
       {temHistorico ? (
         <Secao titulo="Últimos 6 meses">
@@ -222,5 +224,73 @@ export function AbaVisaoGeral({
         Comparações com {rotuloIntervalo(ctx.anterior)} · transferências não entram
       </p>
     </div>
+  );
+}
+
+/**
+ * Quanto ficou investido no período: aplicado − resgatado. Aplicações e resgates não entram
+ * em entradas nem saídas (o dinheiro continua seu), então cada real conta uma vez só.
+ */
+function CardInvestimentos({ ctx }: { ctx: ContextoAnalise }) {
+  const { aplicado, resgatado, liquido } = ctx.investAtual;
+  const anterior = ctx.investAnterior.liquido;
+  if (aplicado === 0 && resgatado === 0 && anterior === 0) return null;
+  const dif = liquido - anterior;
+  const resgatouMais = liquido < 0;
+
+  return (
+    <Secao titulo="Investimentos">
+      <Card className="px-4 py-3.5">
+        <div className="flex items-start gap-3">
+          <Bolha cor="#4f8cff" className="h-9 w-9">
+            <Landmark className="h-4 w-4" aria-hidden />
+          </Bolha>
+          <div className="min-w-0 flex-1">
+            <p className="text-xs text-texto-3">{resgatouMais ? "Resgatado a mais no período" : "Investido no período"}</p>
+            <p className={`text-xl font-semibold leading-tight ${resgatouMais ? "text-alerta" : "text-texto"}`}>
+              <Valor valor={Math.abs(liquido)} />
+            </p>
+            {anterior !== 0 || liquido !== 0 ? (
+              <p className="mt-0.5 text-[11px] text-texto-3">
+                {dif === 0 ? (
+                  <>Igual {ctx.comparacaoNo}</>
+                ) : (
+                  <>
+                    <span className={dif > 0 ? "text-positivo" : "text-negativo"}>
+                      {brlInteiro(Math.abs(dif))} {dif > 0 ? "a mais" : "a menos"}
+                    </span>{" "}
+                    que {ctx.comparacaoNo}
+                  </>
+                )}
+              </p>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="mt-3 grid grid-cols-2 gap-3 border-t border-borda pt-3 text-xs">
+          <div>
+            <p className="text-texto-3">Aplicado</p>
+            <p className="mt-0.5 text-[15px] font-semibold text-texto">
+              <Valor valor={aplicado} />
+            </p>
+          </div>
+          <div>
+            <p className="text-texto-3">Resgatado</p>
+            <p className="mt-0.5 text-[15px] font-semibold text-texto">
+              <Valor valor={resgatado} />
+            </p>
+          </div>
+        </div>
+        {aplicado > 0 ? (
+          <BarraFina fracao={Math.min(1, resgatado / aplicado)} cor="#f59e0b" className="mt-2 h-1" />
+        ) : null}
+        <p className="mt-2 text-[11px] text-texto-3">
+          Aplicações e resgates não contam como entrada nem saída: o dinheiro continua seu.{" "}
+          <Link href="/patrimonio" className="font-medium text-marca">
+            Ver patrimônio
+          </Link>
+        </p>
+      </Card>
+    </Secao>
   );
 }

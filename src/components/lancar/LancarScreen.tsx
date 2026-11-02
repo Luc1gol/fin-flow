@@ -34,6 +34,7 @@ import { Botao, Card, campoClasse } from "@/components/ui/base";
 import { IconeCategoria } from "@/components/ui/IconeCategoria";
 import { carregarCategoriasPorUso } from "@/lib/categorias-tags";
 import { SeletorCategoria } from "@/components/ui/SeletorCategoria";
+import { ajustarInvestimento } from "@/lib/investimentos";
 import { fetchDistinctTagsExtrasHistoricoForUser } from "@/lib/tags-extras-historico";
 import {
   MAX_AMOUNT_DIGITS_LANCAMENTO,
@@ -132,7 +133,7 @@ type LancamentoInsertRow = {
   user_id: string;
   descricao: string;
   valor: number;
-  tipo: TipoLancamento;
+  tipo: TipoLancamento | "transferencia";
   data: string;
   tag: string | null;
   conta_cartao: string | null;
@@ -159,11 +160,13 @@ function buildLancamentoInsertRow(args: {
   divididoCom?: string | null;
   valorAReceber?: number | null;
 }): LancamentoInsertRow {
+  // Categoria "Investimentos": aplicação/resgate vira transferência (não é gasto nem ganho).
+  const { tipo, valor } = ajustarInvestimento(args.tipo, args.valor, args.tag);
   const row: LancamentoInsertRow = {
     user_id: args.userId,
     descricao: args.descricao,
-    valor: args.valor,
-    tipo: args.tipo,
+    valor,
+    tipo,
     data: args.dataIso,
     tag: args.tag,
     conta_cartao: args.contaCartao,

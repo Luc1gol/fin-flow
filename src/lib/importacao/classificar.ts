@@ -45,6 +45,10 @@ const SUFIXO_PARCELA = /\s*\(\d{1,2}\/\d{1,2}\)$/;
 /** Textos genéricos que não identificam a contraparte — não geram regra. */
 const MEMOS_GENERICOS = /^(transf enviada pix|pix enviado|pagamento de fatura|fatura de cartao|pgto fat|debito de cartao|compra (no |com cartao )?debito)/;
 
+/** Aplicação ou resgate em investimento (CDB, RDB, LCI, Tesouro, poupança, fundos...). */
+const INVESTIMENTO =
+  /\b(aplicacao|aplic|resgate|resg|cdb|rdb|lci|lca|cri|cra|tesouro direto|poupanca|fundo de investimento|investimento|invest)\b/;
+
 /** Compra no débito sem nome do estabelecimento (como vem do Open Finance do C6). */
 const COMPRA_DEBITO_GENERICA = /^(debito de cartao|compra (no |com cartao )?debito)/;
 
@@ -157,6 +161,18 @@ function classificarSemRegras(
   // Pagamento de fatura: o gasto já foi contado nas compras do cartão.
   if (/^fatura de cartao|pgto fat/.test(memoNorm)) {
     return { tipo: "transferencia", meio: "outro", descricao: "Pagamento de fatura do cartão", categoria: null, valor, precisaRevisao: false };
+  }
+
+  // Aplicação/resgate de investimento: o dinheiro continua seu (não é gasto nem ganho).
+  if (!opcoes.cartaoCredito && INVESTIMENTO.test(memoNorm)) {
+    return {
+      tipo: "transferencia",
+      meio: "outro",
+      descricao: entrada ? "Resgate de investimento" : "Aplicação em investimento",
+      categoria: "Investimentos",
+      valor,
+      precisaRevisao: false,
+    };
   }
 
   const pixRecebido = /^pix recebido de (.+)$/i.exec(memoLimpo);

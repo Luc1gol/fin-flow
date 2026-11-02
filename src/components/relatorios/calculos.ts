@@ -11,6 +11,8 @@ import type {
   MeioAnalise,
   PontoFluxo,
   VisaoComposicao,
+  MovimentoInvestimento,
+  ResumoInvestimentos,
 } from "@/types/relatorios";
 import {
   DIAS_SEMANA,
@@ -705,3 +707,14 @@ export function gerarInsights(args: {
   return out;
 }
 
+
+/** Aplicado, resgatado e o que ficou investido (aplicado − resgatado) num conjunto de movimentos. */
+export function resumirInvestimentos(movs: MovimentoInvestimento[]): ResumoInvestimentos {
+  let aplicado = 0;
+  let resgatado = 0;
+  for (const m of movs) {
+    if (m.valor < 0) aplicado += -m.valor;
+    else resgatado += m.valor;
+  }
+  return { aplicado, resgatado, liquido: aplicado - resgatado };
+}
