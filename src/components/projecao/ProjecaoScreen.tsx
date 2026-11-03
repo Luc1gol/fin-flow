@@ -217,7 +217,7 @@ export function ProjecaoScreen() {
                   ? "Conecte o banco para partir do saldo real. "
                   : ""}
               Compras no crédito entram no dia do vencimento da fatura. A fatura é estimada pelos
-              lançamentos do cartão. O dia a dia é a média dos últimos 90 dias em débito, Pix e dinheiro.
+              lançamentos do cartão. O dia a dia é a média diária em débito, Pix e dinheiro (até os últimos 90 dias).
             </span>
           </p>
         </>

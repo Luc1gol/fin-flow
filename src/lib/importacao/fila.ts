@@ -287,8 +287,9 @@ export async function parearTransferencias(db: SupabaseClient, userId: string): 
     .select(campos)
     .eq("user_id", userId)
     .in("status", ["pendente", "confirmada"])
-    .gte("data", desloca(datas[0]!, -2))
-    .lte("data", desloca(datas[datas.length - 1]!, 2));
+    // Folga extra: o par de uma transferência confirmada na borda também precisa vir.
+    .gte("data", desloca(datas[0]!, -4))
+    .lte("data", desloca(datas[datas.length - 1]!, 4));
 
   const linhas = (proximas ?? []) as unknown as LinhaPareamento[];
   const ehTransferencia = (l: LinhaPareamento) =>
@@ -296,19 +297,44 @@ export async function parearTransferencias(db: SupabaseClient, userId: string): 
   const dias = (a: string, b: string) =>
     Math.abs(new Date(`${a}T12:00:00Z`).getTime() - new Date(`${b}T12:00:00Z`).getTime()) / 86_400_000;
 
+  const formamPar = (a: LinhaPareamento, b: LinhaPareamento) =>
+    a.id !== b.id &&
+    a.conta_id !== b.conta_id &&
+    Math.sign(Number(a.valor)) === -Math.sign(Number(b.valor)) &&
+    Math.abs(Math.abs(Number(a.valor)) - Math.abs(Number(b.valor))) < 0.005 &&
+    dias(a.data, b.data) <= 2;
+
+  // No cartão, só entra dinheiro por pagamento de fatura: uma compra (saída) nunca é
+  // um lado de transferência entre contas.
+  const { data: cartoes } = await db
+    .from("contas")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("tipo", "cartao_credito");
+  const idsCartao = new Set((cartoes ?? []).map((c) => c.id as string));
+  const podeSerTransferencia = (l: LinhaPareamento) => !(idsCartao.has(l.conta_id) && Number(l.valor) < 0);
+
+  // Uma transferência já confirmada que tem o seu par confirmado já está fechada: não pode
+  // "puxar" outra transação de mesmo valor dias depois.
+  const confirmadas = linhas.filter((l) => l.status === "confirmada" && ehTransferencia(l));
   const usadas = new Set<string>();
+  for (const c of confirmadas) {
+    if (usadas.has(c.id)) continue;
+    const par = confirmadas.find((o) => !usadas.has(o.id) && formamPar(c, o));
+    if (par) {
+      usadas.add(c.id);
+      usadas.add(par.id);
+    }
+  }
+
   const confirmar = new Map<string, LinhaPareamento>();
   for (const p of pendentes as unknown as LinhaPareamento[]) {
-    if (usadas.has(p.id)) continue;
-    const valor = Number(p.valor);
+    if (usadas.has(p.id) || !podeSerTransferencia(p)) continue;
     const par = linhas.find(
       (c) =>
-        c.id !== p.id &&
         !usadas.has(c.id) &&
-        c.conta_id !== p.conta_id &&
-        Math.sign(Number(c.valor)) === -Math.sign(valor) &&
-        Math.abs(Math.abs(Number(c.valor)) - Math.abs(valor)) < 0.005 &&
-        dias(c.data, p.data) <= 2 &&
+        podeSerTransferencia(c) &&
+        formamPar(c, p) &&
         (ehTransferencia(c) || ehTransferencia(p)),
     );
     if (!par) continue;

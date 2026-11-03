@@ -125,8 +125,16 @@ function diaDoMes(dataIsoValor: string | null): number | null {
   return dia >= 1 && dia <= 31 ? dia : null;
 }
 
-function dataInicial(conta: ContaApp): string {
-  const d = conta.ultima_sincronizacao ? new Date(conta.ultima_sincronizacao) : new Date();
+/**
+ * Busca a partir da última sincronização (menos uma folga). Se o banco ficou dias sem mandar
+ * dados, a busca volta até o último envio dele, para não pular o que chegar atrasado.
+ */
+function dataInicial(conta: ContaApp, bancoAtualizadoEm: string | null): string {
+  const base = [conta.ultima_sincronizacao, bancoAtualizadoEm]
+    .filter((d): d is string => Boolean(d))
+    .map((d) => new Date(d))
+    .sort((a, b) => a.getTime() - b.getTime())[0];
+  const d = conta.ultima_sincronizacao && base ? new Date(base) : new Date();
   d.setDate(d.getDate() - (conta.ultima_sincronizacao ? DIAS_SOBREPOSICAO : DIAS_HISTORICO_INICIAL));
   const calculada = d.toISOString().slice(0, 10);
   // A partir de quando o usuário passou a usar o app (ex.: 2026-11-01): nada antes disso entra.
@@ -328,17 +336,19 @@ async function salvarDadosCartao(
   if (error) console.error("[open-finance] salvar faturas", error);
 }
 
+/** Devolve os ids que o banco mandou (null se a consulta falhou). */
 async function salvarInvestimentos(
   db: SupabaseClient,
   userId: string,
   apiKey: string,
   itemId: string,
-): Promise<void> {
+): Promise<string[] | null> {
   const lista = await listarInvestimentos(apiKey, itemId).catch((e) => {
     console.error("[open-finance] investimentos", e);
-    return [];
+    return null;
   });
-  if (lista.length === 0) return;
+  if (!lista) return null;
+  if (lista.length === 0) return [];
   const { error } = await db.from("investimentos").upsert(
     lista.map((i) => ({
       user_id: userId,
@@ -355,6 +365,26 @@ async function salvarInvestimentos(
     { onConflict: "pluggy_investment_id" },
   );
   if (error) console.error("[open-finance] salvar investimentos", error);
+  return lista.map((i) => i.id);
+}
+
+/**
+ * Investimento resgatado costuma simplesmente sumir da lista do banco. Se nenhum banco
+ * o devolveu mais, o saldo vai a zero (senão o dinheiro conta duas vezes: na conta e investido).
+ */
+async function zerarInvestimentosSumidos(db: SupabaseClient, userId: string, idsAtuais: string[]): Promise<void> {
+  const { data } = await db.from("investimentos").select("id, pluggy_investment_id").eq("user_id", userId).gt("saldo", 0);
+  const atuais = new Set(idsAtuais);
+  const sumidos = (data ?? []).filter((i) => i.pluggy_investment_id && !atuais.has(i.pluggy_investment_id as string));
+  if (sumidos.length === 0) return;
+  const { error } = await db
+    .from("investimentos")
+    .update({ saldo: 0, atualizado_em: new Date().toISOString() })
+    .in(
+      "id",
+      sumidos.map((i) => i.id),
+    );
+  if (error) console.error("[open-finance] zerar investimentos", error);
 }
 
 /** Foto do dia: dinheiro em conta, investido e devido no cartão. */
@@ -426,6 +456,8 @@ export async function sincronizarBanco(
   const idsAtuais = new Set(porItem.flatMap((i) => (i.contas ?? []).map((c) => c.id)));
 
   const bancos: BancoConectado[] = [];
+  const idsInvestimentos: string[] = [];
+  let investimentosCompletos = true;
   for (const { itemId, item, contas } of porItem) {
     const banco = situacaoDoItem(item, contas ?? [], itemId);
     bancos.push(banco);
@@ -441,7 +473,7 @@ export async function sincronizarBanco(
         const conta = await obterOuCriarConta(db, userId, contaPluggy, idsAtuais);
         const cartao = contaPluggy.type === "CREDIT";
         const transacoes = transacoesParaFila(
-          await listarTransacoes(apiKey, contaPluggy.id, dataInicial(conta)),
+          await listarTransacoes(apiKey, contaPluggy.id, dataInicial(conta, item?.lastUpdatedAt ?? null)),
           contaPluggy,
         );
 
@@ -478,12 +510,21 @@ export async function sincronizarBanco(
         banco.novas += novas;
         banco.automaticas += automaticas;
       }
-      await salvarInvestimentos(db, userId, apiKey, itemId);
+      const investimentos = await salvarInvestimentos(db, userId, apiKey, itemId);
+      if (investimentos) idsInvestimentos.push(...investimentos);
+      else investimentosCompletos = false;
     } catch (e) {
       console.error("[open-finance] banco", itemId, e);
       banco.status = "erro";
       banco.erro = "Falhou ao trazer os dados deste banco. Tente de novo em instantes.";
+      investimentosCompletos = false;
     }
+  }
+  // Só com a lista completa de todos os bancos dá para saber o que foi resgatado.
+  if (investimentosCompletos && bancos.every((b) => b.status !== "erro")) {
+    await zerarInvestimentosSumidos(db, userId, idsInvestimentos).catch((e) =>
+      console.error("[open-finance] zerar investimentos", e),
+    );
   }
   // Com todas as contas em dia, junta os dois lados das transferências entre elas.
   await parearTransferencias(db, userId).catch((e) => console.error("[open-finance] pareamento", e));

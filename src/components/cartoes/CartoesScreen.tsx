@@ -420,10 +420,25 @@ function DetalheCartao({
 
   const atualizado = doBanco ? textoAtualizado(conta.saldoEm ?? conta.ultimaSincronizacao) : null;
 
+  // Entre o fechamento e o vencimento: a fatura fechada (do banco) é a que vence; o resto do
+  // que se deve no cartão são compras feitas depois do fechamento, que vão para a próxima.
+  const hojeIso = isoData(hoje);
+  const fechada = doBanco
+    ? faturasBanco
+        .filter((f) => f.vencimento >= hojeIso && f.valorTotal - f.valorPago > 0.005)
+        .sort((a, b) => a.vencimento.localeCompare(b.vencimento))[0]
+    : undefined;
+  const aPagarFechada = fechada ? fechada.valorTotal - fechada.valorPago : 0;
+  const proxima = fechada ? Math.max(0, fatura - aPagarFechada) : 0;
+
   return (
     <section className="flex flex-col gap-3">
       <div>
-        {doBanco ? (
+        {fechada ? (
+          <p className="flex items-center gap-1.5 text-xs text-texto-3">
+            Fatura fechada · vence {dataCurta(dataDeIso(fechada.vencimento))} <SeloBanco />
+          </p>
+        ) : doBanco ? (
           <p className="flex items-center gap-1.5 text-xs text-texto-3">
             Fatura atual <SeloBanco />
           </p>
@@ -433,8 +448,13 @@ function DetalheCartao({
           </p>
         )}
         <p className="mt-0.5 text-[28px] font-semibold leading-tight text-texto">
-          <Valor valor={fatura} />
+          <Valor valor={fechada ? aPagarFechada : fatura} />
         </p>
+        {fechada ? (
+          <p className="mt-1 text-sm text-texto-2">
+            Próxima fatura (aberta): <Valor valor={proxima} />
+          </p>
+        ) : null}
         <p className="mt-0.5 text-[11px] text-texto-3">
           {doBanco
             ? `${atualizado ? `Atualizado ${atualizado}` : "Valor informado pelo banco"} · ${conta.nome || "conta do banco"}`

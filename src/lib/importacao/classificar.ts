@@ -155,7 +155,9 @@ function classificarSemRegras(
   const titular = opcoes.nomesTitular.map(normalizarTexto).filter(Boolean);
   const ehTitular = (nome: string) => {
     const n = normalizarTexto(nome);
-    return titular.some((t) => n === t || n.startsWith(t) || t.startsWith(n));
+    // Nome cortado pelo banco ("LUCIANO HERINGER D") vale; só o primeiro nome, não
+    // (um Pix para outro "Luciano" não é transferência entre suas contas).
+    return titular.some((t) => n === t || n.startsWith(t) || (n.includes(" ") && t.startsWith(n)));
   };
 
   // Pagamento de fatura: o gasto já foi contado nas compras do cartão.

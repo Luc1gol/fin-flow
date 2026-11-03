@@ -246,7 +246,8 @@ export async function carregarCartoesComBanco(hoje = new Date()): Promise<Cartoe
         "id, nome, banco, tipo, numero_conta, cartao_id, saldo_banco, saldo_banco_em, limite, limite_disponivel, fatura_fechamento, fatura_vencimento, pagamento_minimo, ultima_sincronizacao",
       )
       .eq("user_id", userId)
-      .eq("tipo", "cartao_credito"),
+      .eq("tipo", "cartao_credito")
+      .eq("arquivada", false),
   ]);
   if (cart.error) throw cart.error;
   if (cont.error) console.error("[cartoes-banco] contas:", cont.error);

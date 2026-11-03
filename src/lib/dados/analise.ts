@@ -94,7 +94,8 @@ async function buscarCartoes(userId: string, faturasDesde: string): Promise<Cart
       .from("contas")
       .select("id, nome, banco, cartao_id, saldo_banco, limite, limite_disponivel, fatura_vencimento")
       .eq("user_id", userId)
-      .eq("tipo", "cartao_credito"),
+      .eq("tipo", "cartao_credito")
+      .eq("arquivada", false),
   ]);
   if (cart.error) console.error("[analise] cartoes:", cart.error);
   if (cont.error) console.error("[analise] contas:", cont.error);

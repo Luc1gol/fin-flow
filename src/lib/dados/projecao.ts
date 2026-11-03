@@ -36,6 +36,8 @@ export type Projecao = {
 };
 
 const DIAS_MEDIA = 90;
+/** Com menos dias que isso de histórico, a média ainda divide por este tanto (evita exagero). */
+const DIAS_MINIMOS_MEDIA = 14;
 /** Perto do fim do mês, a projeção passa a ir até o fim do mês seguinte. */
 const MIN_DIAS_HORIZONTE = 7;
 
@@ -91,7 +93,7 @@ export async function carregarProjecao(): Promise<Projecao> {
   const [contas, lanc, cartoes, fixas] = await Promise.all([
     supabase
       .from("contas")
-      .select("tipo, banco, cartao_id, saldo_banco, saldo_banco_em, fatura_vencimento")
+      .select("id, tipo, banco, cartao_id, saldo_banco, saldo_banco_em, fatura_vencimento")
       .eq("arquivada", false),
     supabase
       .from("lancamentos")
@@ -150,14 +152,34 @@ export async function carregarProjecao(): Promise<Projecao> {
     });
   }
 
-  // Cartões conectados pelo banco: o saldo da conta de crédito é o valor real da fatura.
-  const contasCredito = (contas.data ?? []).filter(
-    (c) => c.tipo === "cartao_credito" && c.saldo_banco != null && numero(c.saldo_banco) > 0,
-  );
+  // Cartões conectados pelo banco: o saldo da conta de crédito é o que se deve no cartão.
+  const contasCredito = (contas.data ?? []).filter((c) => c.tipo === "cartao_credito" && c.saldo_banco != null);
   const faturaDoBanco = (cartao: { id: unknown; banco: unknown }) =>
     contasCredito.find((c) => c.cartao_id === cartao.id) ??
     contasCredito.find((c) => !c.cartao_id && c.banco && c.banco === cartao.banco);
-  const usouSaldoBanco = new Set<unknown>();
+
+  // Fatura já fechada e ainda não paga (vem do banco): ela vence primeiro; o resto do saldo
+  // do cartão são as compras depois do fechamento, que vão para a fatura seguinte.
+  const { data: faturasAbertas } = contasCredito.length
+    ? await supabase
+        .from("faturas")
+        .select("conta_id, vencimento, valor_total, valor_pago")
+        .in(
+          "conta_id",
+          contasCredito.map((c) => c.id),
+        )
+        .gte("vencimento", hoje)
+    : { data: [] };
+  /** Valores do banco para as próximas faturas de cada cartão conectado, em ordem. */
+  const filaBanco = new Map<unknown, number[]>();
+  for (const conta of contasCredito) {
+    const saldo = Math.max(0, numero(conta.saldo_banco));
+    const fechada = (faturasAbertas ?? [])
+      .filter((f) => f.conta_id === conta.id)
+      .map((f) => Math.max(0, numero(f.valor_total) - numero(f.valor_pago)))
+      .find((restante) => restante > 0.005);
+    filaBanco.set(conta.id, fechada != null ? [fechada, Math.max(0, saldo - fechada)] : [saldo]);
+  }
 
   // 3. Faturas de cartão que ainda vencem dentro do horizonte.
   for (const c of (cartoes.data ?? []).flatMap((cartao) => meses.map((m) => ({ cartao, m })))) {
@@ -171,12 +193,13 @@ export async function carregarProjecao(): Promise<Projecao> {
     if (iso(vencimento) < hoje) continue; // já venceu: considera paga
     const { de, ate } = cicloDaFatura(vencimento, diaF);
     const rotulo = labelContaCartaoPersistido(String(c.cartao.nome ?? "")).toLowerCase();
-    // A próxima fatura usa o valor do banco (se conectado); as seguintes, os lançamentos.
+    // Com o cartão conectado, as próximas faturas usam os valores do banco (mesmo zero, quando
+    // já foi paga); depois deles, a estimativa pelos lançamentos.
     const banco = faturaDoBanco(c.cartao);
-    const doBanco = banco && !usouSaldoBanco.has(c.cartao.id);
-    if (doBanco) usouSaldoBanco.add(c.cartao.id);
+    const valoresBanco = banco ? filaBanco.get(banco.id) : undefined;
+    const doBanco = Boolean(valoresBanco && valoresBanco.length > 0);
     const valor = doBanco
-      ? numero(banco!.saldo_banco)
+      ? valoresBanco!.shift()!
       : lancamentos
           .filter((l) => l.tipo === "despesa" && (l.conta ?? "").toLowerCase() === rotulo && l.data >= de && l.data < ate)
           .reduce((a, l) => a + l.valor, 0);
@@ -196,7 +219,16 @@ export async function carregarProjecao(): Promise<Projecao> {
   const variaveis = lancamentos.filter(
     (l) => l.tipo === "despesa" && !l.recorrencia && !ehCredito(l.meio, l.conta) && l.data >= inicioMedia && l.data <= hoje,
   );
-  const gastoMedioDiario = variaveis.reduce((a, l) => a + l.valor, 0) / DIAS_MEDIA;
+  // Divide pelos dias que de fato têm registros (quem começou a usar há pouco não tem 90 dias).
+  const primeiroRegistro = lancamentos
+    .map((l) => l.data)
+    .filter((d) => d >= inicioMedia && d <= hoje)
+    .sort()[0];
+  const diasCobertos = primeiroRegistro
+    ? Math.round((Date.parse(`${hoje}T12:00:00Z`) - Date.parse(`${primeiroRegistro}T12:00:00Z`)) / 86_400_000) + 1
+    : DIAS_MEDIA;
+  const gastoMedioDiario =
+    variaveis.reduce((a, l) => a + l.valor, 0) / Math.min(DIAS_MEDIA, Math.max(DIAS_MINIMOS_MEDIA, diasCobertos));
 
   const diasRestantes = Math.max(
     0,
