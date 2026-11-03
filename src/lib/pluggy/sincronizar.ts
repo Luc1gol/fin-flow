@@ -240,7 +240,7 @@ async function obterOuCriarConta(
       user_id: userId,
       nome: cartao ? `${nomeBase} (cartão)` : nomeBase,
       banco: bancoPorNome(`${p.marketingName ?? ""} ${p.name}`),
-      tipo: cartao ? "cartao_credito" : "corrente",
+      tipo: cartao ? "cartao_credito" : p.subtype === "SAVINGS_ACCOUNT" ? "poupanca" : "corrente",
       numero_conta: p.number,
       pluggy_account_id: p.id,
     })
