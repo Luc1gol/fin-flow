@@ -203,9 +203,13 @@ async function removerIguaisJaNaFila(
   if (error) throw error;
 
   const idsExistentes = new Set((data ?? []).map((r) => r.id_externo as string));
+  // Só o que não veio de novo agora pode ser "a mesma transação com outro id": Apple Pay,
+  // OFX ou lançamento que o banco mandou como pendente e depois trocou pelo definitivo.
+  const idsLote = new Set(transacoes.map((t) => t.idExterno));
+  const outras = (data ?? []).filter((r) => !idsLote.has(r.id_externo as string));
   // Conta quantas vezes cada (data, valor) já existe, para casar uma a uma.
   const disponiveis = new Map<string, number>();
-  for (const r of data ?? []) {
+  for (const r of outras) {
     const k = `${r.data}|${Number(r.valor).toFixed(2)}`;
     disponiveis.set(k, (disponiveis.get(k) ?? 0) + 1);
   }
@@ -215,16 +219,16 @@ async function removerIguaisJaNaFila(
     disponiveis.set(k, n - 1);
     return true;
   };
-  const doAtalho = (data ?? []).filter((r) => String(r.id_externo).startsWith(PREFIXO_ATALHO));
   return transacoes.filter((t) => {
     if (idsExistentes.has(t.idExterno)) return true; // o upsert já ignora
     const valor = t.valor.toFixed(2);
     if (consumir(`${t.data}|${valor}`)) return false;
-    // Já chegou pelo Apple Pay com um dia de diferença.
-    const vizinha = doAtalho.find(
+    // Já chegou com um dia de diferença (compra perto da meia-noite, pendente que mudou de data).
+    const vizinha = outras.find(
       (r) =>
         Number(r.valor).toFixed(2) === valor &&
-        (r.data === deslocarDia(t.data, -1) || r.data === deslocarDia(t.data, 1)),
+        (r.data === deslocarDia(t.data, -1) || r.data === deslocarDia(t.data, 1)) &&
+        (disponiveis.get(`${r.data}|${valor}`) ?? 0) > 0,
     );
     return !(vizinha && consumir(`${vizinha.data}|${valor}`));
   });

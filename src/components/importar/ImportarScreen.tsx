@@ -10,7 +10,6 @@ import {
   Circle,
   Clock,
   FileUp,
-  Landmark,
   Loader2,
   RefreshCw,
   X,
@@ -18,6 +17,7 @@ import {
 import { Botao, Card, Chip, Valor, campoClasse } from "@/components/ui/base";
 import { IconeCategoria } from "@/components/ui/IconeCategoria";
 import { getBancoById } from "@/data/bancos";
+import { BancoLogo } from "@/components/cartoes/BancoLogo";
 import { carregarCategoriasPorUso } from "@/lib/categorias-tags";
 import { SeletorCategoria } from "@/components/ui/SeletorCategoria";
 import type { TipoMovimento } from "@/lib/importacao/classificar";
@@ -35,6 +35,7 @@ import {
   nomesDoTitular,
   sincronizarOpenFinance,
   statusOpenFinance,
+  type BancoConectado,
   type Conta,
   type TransacaoImportada,
 } from "@/lib/importacao/repositorio";
@@ -66,6 +67,8 @@ const ROTULO_MEIO: Record<string, string> = {
   credito: "crédito",
   boleto: "boleto",
 };
+
+type Aviso = { texto: string; tom?: "neutro" };
 
 type Edicao = { tipo: TipoMovimento; descricao: string; categoria: string };
 
@@ -136,6 +139,27 @@ function quando(isoData: string): string {
   return `${dia.slice(8, 10)}/${dia.slice(5, 7)} às ${hora}`;
 }
 
+/** Mensagem depois de "Buscar": diz o que chegou de cada banco, sem prometer o que não veio. */
+function resumoDaBusca(bancos: BancoConectado[]): Aviso {
+  const comNovas = bancos.filter((b) => (b.novas ?? 0) > 0);
+  const total = comNovas.reduce((a, b) => a + (b.novas ?? 0), 0);
+  const automaticas = bancos.reduce((a, b) => a + (b.automaticas ?? 0), 0);
+  const falhas = bancos.filter((b) => b.status === "erro").map((b) => b.nome);
+  const falhou = falhas.length > 0 ? ` Não deu para atualizar: ${falhas.join(" e ")}.` : "";
+  if (total > 0) {
+    const partes = comNovas.map((b) => `${b.novas} do ${b.nome}`).join(", ");
+    return {
+      texto: `${total === 1 ? "1 transação nova" : `${total} transações novas`} (${partes})${
+        automaticas > 0 ? `, ${automaticas} já lançadas pelas suas regras` : ""
+      }.${falhou}`,
+    };
+  }
+  return {
+    tom: "neutro",
+    texto: `Tudo que os bancos mandaram já está aqui. Compras feitas depois do último envio de cada banco (horário nos cards) chegam no próximo.${falhou}`,
+  };
+}
+
 function edicaoInicial(t: TransacaoImportada): Edicao {
   return {
     tipo: t.sugestao_tipo,
@@ -169,15 +193,13 @@ export function ImportarScreen() {
   const [carregando, setCarregando] = useState(true);
   const [processando, setProcessando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
-  const [aviso, setAviso] = useState<string | null>(null);
+  const [aviso, setAviso] = useState<Aviso | null>(null);
   const [arquivoSemConta, setArquivoSemConta] = useState<ArquivoLido | null>(null);
   const [openFinance, setOpenFinance] = useState(false);
   const [sincronizando, setSincronizando] = useState(false);
-  const [atualizacaoBanco, setAtualizacaoBanco] = useState<{
-    ultima: string | null;
-    proxima: string | null;
-  } | null>(null);
-  const semDetalhe = useMemo(() => contas.filter((c) => Math.abs(c.sem_detalhe ?? 0) >= 0.01), [contas]);
+  const [bancos, setBancos] = useState<BancoConectado[]>([]);
+  /** Já houve uma busca nesta visita (os cards passam a mostrar quantas novas vieram). */
+  const [buscou, setBuscou] = useState(false);
   const sincronizouAoAbrir = useRef(false);
   const inputArquivoRef = useRef<HTMLInputElement>(null);
 
@@ -214,6 +236,7 @@ export function ImportarScreen() {
         setContas(listaContas);
         setCategorias(cats);
         setOpenFinance(status.disponivel);
+        setBancos(status.bancos);
         await recarregarPendentes();
       } catch (e) {
         console.error(e);
@@ -232,19 +255,12 @@ export function ImportarScreen() {
     setErro(null);
     setAviso(null);
     try {
-      const { contas: porConta, bancoAtualizadoEm, proximaAtualizacao } = await sincronizarOpenFinance();
-      const novas = porConta.reduce((acc, c) => acc + c.novas, 0);
-      const automaticas = porConta.reduce((acc, c) => acc + (c.automaticas ?? 0), 0);
+      const { bancos: porBanco } = await sincronizarOpenFinance();
       setContas(await listarContas());
       await recarregarPendentes();
-      setAtualizacaoBanco({ ultima: bancoAtualizadoEm, proxima: proximaAtualizacao });
-      setAviso(
-        novas === 0
-          ? "Nenhuma transação nova desde a última atualização do banco."
-          : `${novas} transações novas do banco${
-              automaticas > 0 ? `, ${automaticas} confirmadas sozinhas pelas suas regras` : ""
-            }.`,
-      );
+      setBancos(porBanco);
+      setBuscou(true);
+      setAviso(resumoDaBusca(porBanco));
     } catch (e) {
       console.error(e);
       setErro(e instanceof Error ? e.message : "Falha ao buscar dados do banco.");
@@ -282,7 +298,7 @@ export function ImportarScreen() {
         ? "Nada novo: essas transações já estavam no app"
         : null,
     ].filter(Boolean);
-    setAviso(`${partes.join(". ")}.`);
+    setAviso({ texto: `${partes.join(". ")}.` });
   }
 
   async function handleArquivo(file: File) {
@@ -423,7 +439,7 @@ export function ImportarScreen() {
       await confirmarTransacoes(itens);
       setAberta(null);
       await recarregarPendentes();
-      setAviso(`${itens.length} lançamentos criados.`);
+      setAviso({ texto: `${itens.length} lançamentos criados.` });
     } catch (e) {
       console.error(e);
       setErro("Erro ao confirmar as transações.");
@@ -440,7 +456,7 @@ export function ImportarScreen() {
     try {
       await ignorarTransacoes(ids);
       await recarregarPendentes();
-      setAviso(`${ids.length} transações ignoradas.`);
+      setAviso({ texto: `${ids.length} transações ignoradas.` });
     } catch (e) {
       console.error(e);
       setErro("Erro ao ignorar as transações.");
@@ -455,7 +471,7 @@ export function ImportarScreen() {
     try {
       const n = await ignorarPendentesAntesDe(inicioUso);
       await recarregarPendentes();
-      setAviso(`${n} transações anteriores a ${formatarData(inicioUso)} foram ignoradas.`);
+      setAviso({ texto: `${n} transações anteriores a ${formatarData(inicioUso)} foram ignoradas.` });
     } catch (e) {
       console.error(e);
       setErro("Erro ao ignorar as transações antigas.");
@@ -483,29 +499,32 @@ export function ImportarScreen() {
         ) : null}
       </header>
 
-      {/* Fontes: banco conectado e arquivo OFX */}
-      <Card className="divide-y divide-borda">
-        {openFinance ? (
-          <div className="flex items-center gap-3 px-3 py-2.5">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-marca/15 text-marca">
-              <Landmark className="h-4 w-4" aria-hidden />
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm text-texto">Banco conectado</p>
-              <p className="truncate text-xs text-texto-3">
-                {atualizacaoBanco?.ultima
-                  ? `Banco enviou dados ${quando(atualizacaoBanco.ultima)}${
-                      atualizacaoBanco.proxima ? ` · próxima ${quando(atualizacaoBanco.proxima)}` : ""
-                    }`
-                  : ultimaSincronizacaoTexto(contas)}
-              </p>
-            </div>
+      {/* Bancos conectados: um por linha, cada um com a sua situação */}
+      {openFinance ? (
+        <Card className="divide-y divide-borda">
+          <div className="flex items-center gap-3 px-3 py-2">
+            <p className="flex-1 text-sm font-medium text-texto">Bancos conectados</p>
             <Botao tamanho="sm" disabled={sincronizando || processando} onClick={() => void sincronizar()}>
               <RefreshCw className={`h-3.5 w-3.5 ${sincronizando ? "animate-spin" : ""}`} aria-hidden />
               {sincronizando ? "Buscando" : "Buscar"}
             </Botao>
           </div>
-        ) : null}
+          {bancos.length > 0 ? (
+            bancos.map((b) => (
+              <LinhaBanco
+                key={b.itemId}
+                banco={b}
+                contas={contas.filter((c) => c.pluggy_account_id && b.contasPluggy.includes(c.pluggy_account_id))}
+                buscou={buscou}
+              />
+            ))
+          ) : (
+            <p className="px-3 py-2.5 text-xs text-texto-3">{ultimaSincronizacaoTexto(contas)}</p>
+          )}
+        </Card>
+      ) : null}
+
+      <Card>
         <div className="flex items-center gap-3 px-3 py-2.5">
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-texto-2 ring-1 ring-inset ring-white/[0.08]">
             <FileUp className="h-4 w-4" aria-hidden />
@@ -532,27 +551,6 @@ export function ImportarScreen() {
         </div>
       </Card>
 
-      {semDetalhe.length > 0 ? (
-        <Card className="space-y-1.5 px-3 py-2.5">
-          <p className="flex items-center gap-1.5 text-sm text-texto">
-            <Clock className="h-3.5 w-3.5 text-texto-3" aria-hidden />
-            Aguardando detalhes do banco
-          </p>
-          {semDetalhe.map((c) => (
-            <div key={c.id} className="flex items-baseline justify-between gap-3 text-sm">
-              <span className="truncate text-texto-2">
-                {c.nome}: {c.sem_detalhe! < 0 ? "saída" : "entrada"} já no saldo
-              </span>
-              <Valor valor={c.sem_detalhe!} sinal colorir className="shrink-0" />
-            </div>
-          ))}
-          <p className="text-xs text-texto-3">
-            O banco já descontou do saldo, mas ainda não disse onde foi. Os detalhes costumam chegar no fim
-            da manhã e entram aqui sozinhos.
-          </p>
-        </Card>
-      ) : null}
-
       {arquivoSemConta ? (
         <NovaContaForm
           arquivo={arquivoSemConta}
@@ -566,7 +564,13 @@ export function ImportarScreen() {
         <p className="rounded-xl bg-negativo/10 px-3 py-2.5 text-sm text-negativo">{erro}</p>
       ) : null}
       {aviso ? (
-        <p className="rounded-xl bg-positivo/10 px-3 py-2.5 text-sm text-positivo">{aviso}</p>
+        <p
+          className={`rounded-xl px-3 py-2.5 text-sm ${
+            aviso.tom === "neutro" ? "bg-white/[0.06] text-texto-2" : "bg-positivo/10 text-positivo"
+          }`}
+        >
+          {aviso.texto}
+        </p>
       ) : null}
 
       {carregando ? (
@@ -850,6 +854,62 @@ function LinhaRevisao({
           </p>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+const SITUACAO_BANCO = {
+  ok: { Icone: CheckCircle2, cor: "text-positivo" },
+  atualizando: { Icone: Loader2, cor: "text-marca" },
+  atrasado: { Icone: AlertTriangle, cor: "text-alerta" },
+  erro: { Icone: AlertTriangle, cor: "text-negativo" },
+} as const;
+
+/** Um banco conectado: logo, quando mandou dados, o que chegou na busca e o que falta detalhar. */
+function LinhaBanco({ banco, contas, buscou }: { banco: BancoConectado; contas: Conta[]; buscou: boolean }) {
+  const { Icone, cor } = SITUACAO_BANCO[banco.status];
+  const semDetalhe = contas.reduce((a, c) => a + (c.tipo === "cartao_credito" ? 0 : (c.sem_detalhe ?? 0)), 0);
+  const novas = banco.novas ?? 0;
+  const situacao =
+    banco.status === "erro"
+      ? (banco.erro ?? "Não foi possível atualizar.")
+      : banco.status === "atualizando"
+        ? "O banco está enviando os dados agora…"
+        : banco.status === "atrasado"
+          ? `Sem dados novos desde ${banco.ultima ? quando(banco.ultima) : "a conexão"}. No Meu Pluggy, toque em Atualizar.`
+          : `Dados enviados ${banco.ultima ? quando(banco.ultima) : "recentemente"}${
+              banco.proxima ? ` · próximo envio ${quando(banco.proxima)}` : ""
+            }`;
+
+  return (
+    <div className="flex gap-3 px-3 py-2.5">
+      <span className="relative h-10 w-10 shrink-0">
+        <BancoLogo banco={getBancoById(banco.banco ?? "outros")} className="h-10 w-10" />
+        <span className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-superficie">
+          <Icone
+            className={`h-3.5 w-3.5 ${cor} ${banco.status === "atualizando" ? "animate-spin" : ""}`}
+            aria-hidden
+          />
+        </span>
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline justify-between gap-2">
+          <p className="truncate text-sm font-medium text-texto">{banco.nome}</p>
+          {buscou && banco.status !== "erro" ? (
+            <span className={`shrink-0 text-xs ${novas > 0 ? "text-positivo" : "text-texto-3"}`}>
+              {novas > 0 ? `+${novas} ${novas === 1 ? "nova" : "novas"}` : "nada novo"}
+            </span>
+          ) : null}
+        </div>
+        <p className={`text-xs ${banco.status === "ok" ? "text-texto-3" : cor}`}>{situacao}</p>
+        {Math.abs(semDetalhe) >= 0.01 ? (
+          <p className="mt-1 flex flex-wrap items-center gap-x-1 text-xs text-texto-2">
+            <Clock className="h-3 w-3 text-texto-3" aria-hidden />
+            <Valor valor={semDetalhe} sinal colorir />
+            <span>{semDetalhe < 0 ? "já saiu" : "já entrou"} no saldo; o banco ainda não mandou o lançamento.</span>
+          </p>
+        ) : null}
+      </div>
     </div>
   );
 }

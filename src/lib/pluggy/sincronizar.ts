@@ -11,6 +11,8 @@ import {
   obterItem,
   pluggyItemIds,
   type PluggyConta,
+  type PluggyItem,
+  type PluggyTransacao,
 } from "@/lib/pluggy/cliente";
 import { normalizarTransacao } from "@/lib/pluggy/mapear";
 import { fechamentoDaFatura } from "@/lib/cartao-datas";
@@ -38,11 +40,71 @@ type ContaApp = {
   sem_detalhe_desde: string | null;
 };
 
+/** Situação de um banco conectado (um item do Meu Pluggy), para mostrar um card por banco. */
+export type BancoConectado = {
+  itemId: string;
+  /** Id em `src/data/bancos.ts` (para o logo). */
+  banco: string | null;
+  nome: string;
+  status: "ok" | "atrasado" | "atualizando" | "erro";
+  /** Última vez que o banco mandou dados ao Meu Pluggy. */
+  ultima: string | null;
+  proxima: string | null;
+  /** Ids da Pluggy das contas deste banco (ligam às contas do app). */
+  contasPluggy: string[];
+  /** Só depois de uma busca. */
+  novas?: number;
+  automaticas?: number;
+  erro?: string;
+};
+
 export type ResultadoSincronizacao = {
   contas: { nome: string; novas: number; duplicadas: number; automaticas: number }[];
-  bancoAtualizadoEm: string | null;
-  proximaAtualizacao: string | null;
+  bancos: BancoConectado[];
 };
+
+/** Mais que isso sem o banco mandar dados é sinal de que a atualização diária falhou. */
+const HORAS_ATE_ATRASO = 30;
+
+function situacaoDoItem(item: PluggyItem | null, contas: PluggyConta[], itemId: string): BancoConectado {
+  // No Meu Pluggy o conector se chama "MeuPluggy"; o banco de verdade está no nome das contas.
+  const banco = [item?.connector?.name, ...contas.flatMap((c) => [c.marketingName, c.name])]
+    .map((n) => (n ? bancoPorNome(n) : null))
+    .find(Boolean) ?? null;
+  const nome = banco
+    ? (BANCOS.find((b) => b.id === banco)?.nome ?? banco)
+    : contas[0]?.marketingName || contas[0]?.name || item?.connector?.name || "Banco";
+  const ultima = item?.lastUpdatedAt ?? null;
+  let status: BancoConectado["status"] = "ok";
+  if (!item) status = "erro";
+  else if (item.status === "UPDATING") status = "atualizando";
+  else if (["LOGIN_ERROR", "OUTDATED", "WAITING_USER_INPUT"].includes(item.status)) status = "erro";
+  else if (!ultima || Date.now() - Date.parse(ultima) > HORAS_ATE_ATRASO * 3_600_000) status = "atrasado";
+  return {
+    itemId,
+    banco,
+    nome,
+    status,
+    ultima,
+    proxima: item?.nextAutoSyncAt ?? null,
+    contasPluggy: contas.map((c) => c.id),
+    ...(status === "erro" ? { erro: "O banco não respondeu na última atualização." } : {}),
+  };
+}
+
+/** Só consulta a situação de cada banco (sem buscar transações): usado ao abrir Revisar. */
+export async function situacaoDosBancos(): Promise<BancoConectado[]> {
+  const apiKey = await autenticar();
+  return Promise.all(
+    pluggyItemIds().map(async (itemId) => {
+      const [item, contas] = await Promise.all([
+        obterItem(apiKey, itemId).catch(() => null),
+        listarContasDoItem(apiKey, itemId).catch(() => [] as PluggyConta[]),
+      ]);
+      return situacaoDoItem(item, contas, itemId);
+    }),
+  );
+}
 
 function hojeBrasilia(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
@@ -318,6 +380,28 @@ async function registrarPatrimonio(db: SupabaseClient, userId: string): Promise<
   if (error) console.error("[open-finance] patrimônio", error);
 }
 
+/**
+ * Transações que entram na fila. Na conta corrente, PENDING com data futura são
+ * agendamentos (ficam de fora); com data de hoje ou antes, já saíram do saldo e entram
+ * logo — o banco às vezes leva um dia para marcá-las como definitivas. No cartão,
+ * PENDING são as compras da fatura aberta.
+ */
+function transacoesParaFila(lista: PluggyTransacao[], contaPluggy: PluggyConta) {
+  const hoje = hojeBrasilia();
+  const normalizadas = lista.map((t) => ({ pendente: t.status === "PENDING", ...normalizarTransacao(t, contaPluggy) }));
+  if (contaPluggy.type === "CREDIT") return normalizadas;
+  const definitivas = normalizadas.filter((t) => !t.pendente);
+  return normalizadas.filter(
+    (t) =>
+      !t.pendente ||
+      (t.data <= hoje &&
+        // Se o definitivo já veio junto, o pendente é a mesma transação.
+        !definitivas.some(
+          (d) => d.valor === t.valor && Math.abs(Date.parse(d.data) - Date.parse(t.data)) <= 86_400_000,
+        )),
+  );
+}
+
 export async function sincronizarBanco(
   db: SupabaseClient,
   userId: string,
@@ -326,66 +410,87 @@ export async function sincronizarBanco(
   const [apiKey, regras] = await Promise.all([autenticar(), carregarRegras(db, userId)]);
 
   const resultado: ResultadoSincronizacao["contas"] = [];
-  const atualizacoes: { ultima: string | null; proxima: string | null }[] = [];
   const porItem = await Promise.all(
-    pluggyItemIds().map(async (itemId) => ({
-      itemId,
-      // Informativo: se falhar, a sincronização segue normalmente.
-      item: await obterItem(apiKey, itemId).catch(() => null),
-      contas: await listarContasDoItem(apiKey, itemId),
-    })),
+    pluggyItemIds().map(async (itemId) => {
+      // Um banco fora do ar não impede os outros de atualizar.
+      const [item, contas] = await Promise.all([
+        obterItem(apiKey, itemId).catch(() => null),
+        listarContasDoItem(apiKey, itemId).catch((e) => {
+          console.error("[open-finance] contas do item", itemId, e);
+          return null;
+        }),
+      ]);
+      return { itemId, item, contas };
+    }),
   );
-  const idsAtuais = new Set(porItem.flatMap((i) => i.contas.map((c) => c.id)));
+  const idsAtuais = new Set(porItem.flatMap((i) => (i.contas ?? []).map((c) => c.id)));
 
+  const bancos: BancoConectado[] = [];
   for (const { itemId, item, contas } of porItem) {
-    if (item) atualizacoes.push({ ultima: item.lastUpdatedAt, proxima: item.nextAutoSyncAt });
-    for (const contaPluggy of contas) {
-      const conta = await obterOuCriarConta(db, userId, contaPluggy, idsAtuais);
-      const cartao = contaPluggy.type === "CREDIT";
-      const transacoes = (await listarTransacoes(apiKey, contaPluggy.id, dataInicial(conta)))
-        // Na conta corrente, PENDING são agendamentos futuros; no cartão, compras da fatura aberta.
-        .filter((t) => cartao || t.status === "POSTED")
-        .map((t) => normalizarTransacao(t, contaPluggy));
-
-      const { novas, duplicadas, automaticas, somaNovas } = await enfileirarTransacoes(db, {
-        contaId: conta.id,
-        origem: "Open Finance",
-        transacoes,
-        nomesTitular,
-        regras,
-        cartaoCredito: cartao,
-        ignorarIguaisJaNaFila: true,
-        autoConfirmar: true,
-        userId,
-      });
-
-      await db
-        .from("contas")
-        .update({
-          saldo_banco: contaPluggy.balance,
-          saldo_banco_em: new Date().toISOString(),
-          ultima_sincronizacao: new Date().toISOString(),
-          ...(cartao
-            ? {}
-            : semDetalheAtualizado(
-                conta,
-                contaPluggy.balance,
-                somaNovas + (await somaDoAtalhoDesde(db, conta.id, conta.ultima_sincronizacao)),
-              )),
-        })
-        .eq("id", conta.id);
-
-      if (cartao) await salvarDadosCartao(db, userId, apiKey, conta.id, contaPluggy);
-      resultado.push({ nome: conta.nome, novas, duplicadas, automaticas });
+    const banco = situacaoDoItem(item, contas ?? [], itemId);
+    bancos.push(banco);
+    if (!contas) {
+      banco.status = "erro";
+      banco.erro = "Não foi possível falar com o banco agora.";
+      continue;
     }
-    await salvarInvestimentos(db, userId, apiKey, itemId);
+    banco.novas = 0;
+    banco.automaticas = 0;
+    try {
+      for (const contaPluggy of contas) {
+        const conta = await obterOuCriarConta(db, userId, contaPluggy, idsAtuais);
+        const cartao = contaPluggy.type === "CREDIT";
+        const transacoes = transacoesParaFila(
+          await listarTransacoes(apiKey, contaPluggy.id, dataInicial(conta)),
+          contaPluggy,
+        );
+
+        const { novas, duplicadas, automaticas, somaNovas } = await enfileirarTransacoes(db, {
+          contaId: conta.id,
+          origem: "Open Finance",
+          transacoes,
+          nomesTitular,
+          regras,
+          cartaoCredito: cartao,
+          ignorarIguaisJaNaFila: true,
+          autoConfirmar: true,
+          userId,
+        });
+
+        await db
+          .from("contas")
+          .update({
+            saldo_banco: contaPluggy.balance,
+            saldo_banco_em: new Date().toISOString(),
+            ultima_sincronizacao: new Date().toISOString(),
+            ...(cartao
+              ? {}
+              : semDetalheAtualizado(
+                  conta,
+                  contaPluggy.balance,
+                  somaNovas + (await somaDoAtalhoDesde(db, conta.id, conta.ultima_sincronizacao)),
+                )),
+          })
+          .eq("id", conta.id);
+
+        if (cartao) await salvarDadosCartao(db, userId, apiKey, conta.id, contaPluggy);
+        resultado.push({ nome: conta.nome, novas, duplicadas, automaticas });
+        banco.novas += novas;
+        banco.automaticas += automaticas;
+      }
+      await salvarInvestimentos(db, userId, apiKey, itemId);
+    } catch (e) {
+      console.error("[open-finance] banco", itemId, e);
+      banco.status = "erro";
+      banco.erro = "Falhou ao trazer os dados deste banco. Tente de novo em instantes.";
+    }
   }
   // Com todas as contas em dia, junta os dois lados das transferências entre elas.
   await parearTransferencias(db, userId).catch((e) => console.error("[open-finance] pareamento", e));
   await registrarPatrimonio(db, userId);
 
-  // Data mais antiga entre os bancos: é ela que limita o que já chegou.
-  const ultimas = atualizacoes.map((a) => a.ultima).filter((d): d is string => Boolean(d)).sort();
-  const proximas = atualizacoes.map((a) => a.proxima).filter((d): d is string => Boolean(d)).sort();
-  return { contas: resultado, bancoAtualizadoEm: ultimas[0] ?? null, proximaAtualizacao: proximas[0] ?? null };
+  if (bancos.length > 0 && bancos.every((b) => b.status === "erro" && b.novas == null)) {
+    throw new Error("Nenhum banco respondeu.");
+  }
+  return { contas: resultado, bancos };
 }

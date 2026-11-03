@@ -116,6 +116,7 @@ export type PluggyItem = {
   lastUpdatedAt: string | null;
   nextAutoSyncAt: string | null;
   consentExpiresAt: string | null;
+  connector?: { name?: string | null } | null;
 };
 
 /** Quando o banco (Meu Pluggy) atualizou os dados pela última vez e quando atualiza de novo. */

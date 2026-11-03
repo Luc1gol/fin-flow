@@ -18,6 +18,7 @@ export type Conta = {
   saldo_inicial: number;
   data_saldo_inicial: string;
   ultima_sincronizacao: string | null;
+  pluggy_account_id?: string | null;
   /** Variação do saldo que o banco ainda não detalhou (negativo = saiu dinheiro). */
   sem_detalhe?: number;
 };
@@ -53,7 +54,7 @@ async function usuarioAtual() {
 export async function listarContas(): Promise<Conta[]> {
   const { data, error } = await supabase
     .from("contas")
-    .select("id, nome, banco, tipo, numero_conta, saldo_inicial, data_saldo_inicial, ultima_sincronizacao, sem_detalhe")
+    .select("id, nome, banco, tipo, numero_conta, saldo_inicial, data_saldo_inicial, ultima_sincronizacao, pluggy_account_id, sem_detalhe")
     .eq("arquivada", false)
     .order("created_at");
   if (error) throw error;
@@ -234,23 +235,36 @@ export async function sincronizarOpenFinance(): Promise<ResultadoSincronizacao> 
   return corpo as ResultadoSincronizacao;
 }
 
+export type BancoConectado = {
+  itemId: string;
+  banco: string | null;
+  nome: string;
+  status: "ok" | "atrasado" | "atualizando" | "erro";
+  /** Última vez que o banco mandou dados novos para o Meu Pluggy. */
+  ultima: string | null;
+  proxima: string | null;
+  contasPluggy: string[];
+  novas?: number;
+  automaticas?: number;
+  erro?: string;
+};
+
 export type ResultadoSincronizacao = {
   contas: { nome: string; novas: number; duplicadas: number; automaticas: number }[];
-  /** Última vez que o banco mandou dados novos para o Meu Pluggy. */
-  bancoAtualizadoEm: string | null;
-  proximaAtualizacao: string | null;
+  bancos: BancoConectado[];
 };
 
 /** Diz se a sincronização automática está disponível para o usuário logado. */
-export async function statusOpenFinance(): Promise<{ disponivel: boolean }> {
+export async function statusOpenFinance(): Promise<{ disponivel: boolean; bancos: BancoConectado[] }> {
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
-  if (!token) return { disponivel: false };
+  if (!token) return { disponivel: false, bancos: [] };
   const res = await fetch("/api/open-finance", {
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (!res.ok) return { disponivel: false };
-  return (await res.json()) as { disponivel: boolean };
+  if (!res.ok) return { disponivel: false, bancos: [] };
+  const corpo = (await res.json()) as { disponivel: boolean; bancos?: BancoConectado[] };
+  return { disponivel: corpo.disponivel, bancos: corpo.bancos ?? [] };
 }
 
 export async function listarPendentes(): Promise<TransacaoImportada[]> {
