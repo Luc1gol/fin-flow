@@ -42,15 +42,15 @@ export async function enfileirarTransacoes(
      */
     autoConfirmar?: boolean;
   },
-): Promise<{ novas: number; duplicadas: number; automaticas: number }> {
+): Promise<{ novas: number; duplicadas: number; automaticas: number; somaNovas: number }> {
   let transacoes = params.transacoes;
-  if (transacoes.length === 0) return { novas: 0, duplicadas: 0, automaticas: 0 };
+  if (transacoes.length === 0) return { novas: 0, duplicadas: 0, automaticas: 0, somaNovas: 0 };
 
   if (params.ignorarIguaisJaNaFila) {
     transacoes = await removerIguaisJaNaFila(db, params.contaId, transacoes);
   }
   const ignoradasAntes = params.transacoes.length - transacoes.length;
-  if (transacoes.length === 0) return { novas: 0, duplicadas: ignoradasAntes, automaticas: 0 };
+  if (transacoes.length === 0) return { novas: 0, duplicadas: ignoradasAntes, automaticas: 0, somaNovas: 0 };
 
   const datas = transacoes.map((t) => t.data).sort();
   const { data: importacao, error: errImp } = await db
@@ -104,7 +104,9 @@ export async function enfileirarTransacoes(
   } else {
     await db.from("importacoes").update({ total_transacoes: novas }).eq("id", importacao.id);
   }
-  return { novas, duplicadas: ignoradasAntes + linhas.length - novas, automaticas };
+  // Soma (com sinal) do que entrou agora: explica a variação do saldo da conta.
+  const somaNovas = (inseridas ?? []).reduce((a, l) => a + Number(l.valor), 0);
+  return { novas, duplicadas: ignoradasAntes + linhas.length - novas, automaticas, somaNovas };
 }
 
 type LinhaInserida = {
@@ -190,12 +192,14 @@ async function removerIguaisJaNaFila(
   transacoes: TransacaoParaFila[],
 ): Promise<TransacaoParaFila[]> {
   const datas = transacoes.map((t) => t.data).sort();
+  // Um dia de folga: a compra do Apple Pay feita perto da meia-noite pode vir do banco com
+  // a data do dia seguinte (ou o contrário).
   const { data, error } = await db
     .from("transacoes_importadas")
     .select("id_externo, data, valor")
     .eq("conta_id", contaId)
-    .gte("data", datas[0]!)
-    .lte("data", datas[datas.length - 1]!);
+    .gte("data", deslocarDia(datas[0]!, -1))
+    .lte("data", deslocarDia(datas[datas.length - 1]!, 1));
   if (error) throw error;
 
   const idsExistentes = new Set((data ?? []).map((r) => r.id_externo as string));
@@ -205,16 +209,34 @@ async function removerIguaisJaNaFila(
     const k = `${r.data}|${Number(r.valor).toFixed(2)}`;
     disponiveis.set(k, (disponiveis.get(k) ?? 0) + 1);
   }
+  const consumir = (k: string) => {
+    const n = disponiveis.get(k) ?? 0;
+    if (n === 0) return false;
+    disponiveis.set(k, n - 1);
+    return true;
+  };
+  const doAtalho = (data ?? []).filter((r) => String(r.id_externo).startsWith(PREFIXO_ATALHO));
   return transacoes.filter((t) => {
     if (idsExistentes.has(t.idExterno)) return true; // o upsert já ignora
-    const k = `${t.data}|${t.valor.toFixed(2)}`;
-    const n = disponiveis.get(k) ?? 0;
-    if (n > 0) {
-      disponiveis.set(k, n - 1);
-      return false;
-    }
-    return true;
+    const valor = t.valor.toFixed(2);
+    if (consumir(`${t.data}|${valor}`)) return false;
+    // Já chegou pelo Apple Pay com um dia de diferença.
+    const vizinha = doAtalho.find(
+      (r) =>
+        Number(r.valor).toFixed(2) === valor &&
+        (r.data === deslocarDia(t.data, -1) || r.data === deslocarDia(t.data, 1)),
+    );
+    return !(vizinha && consumir(`${vizinha.data}|${valor}`));
   });
+}
+
+/** Prefixo do id externo das compras que chegam pelo atalho do iPhone (Apple Pay). */
+export const PREFIXO_ATALHO = "applepay:";
+
+function deslocarDia(iso: string, dias: number): string {
+  const d = new Date(`${iso}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + dias);
+  return d.toISOString().slice(0, 10);
 }
 
 type LinhaPareamento = {

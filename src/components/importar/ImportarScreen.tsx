@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   ChevronDown,
   Circle,
+  Clock,
   FileUp,
   Landmark,
   Loader2,
@@ -176,6 +177,7 @@ export function ImportarScreen() {
     ultima: string | null;
     proxima: string | null;
   } | null>(null);
+  const semDetalhe = useMemo(() => contas.filter((c) => Math.abs(c.sem_detalhe ?? 0) >= 0.01), [contas]);
   const sincronizouAoAbrir = useRef(false);
   const inputArquivoRef = useRef<HTMLInputElement>(null);
 
@@ -529,6 +531,27 @@ export function ImportarScreen() {
           </Botao>
         </div>
       </Card>
+
+      {semDetalhe.length > 0 ? (
+        <Card className="space-y-1.5 px-3 py-2.5">
+          <p className="flex items-center gap-1.5 text-sm text-texto">
+            <Clock className="h-3.5 w-3.5 text-texto-3" aria-hidden />
+            Aguardando detalhes do banco
+          </p>
+          {semDetalhe.map((c) => (
+            <div key={c.id} className="flex items-baseline justify-between gap-3 text-sm">
+              <span className="truncate text-texto-2">
+                {c.nome}: {c.sem_detalhe! < 0 ? "saída" : "entrada"} já no saldo
+              </span>
+              <Valor valor={c.sem_detalhe!} sinal colorir className="shrink-0" />
+            </div>
+          ))}
+          <p className="text-xs text-texto-3">
+            O banco já descontou do saldo, mas ainda não disse onde foi. Os detalhes costumam chegar no fim
+            da manhã e entram aqui sozinhos.
+          </p>
+        </Card>
+      ) : null}
 
       {arquivoSemConta ? (
         <NovaContaForm

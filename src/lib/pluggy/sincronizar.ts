@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { BANCOS } from "@/data/bancos";
 import { normalizarTexto, type RegraUsuario } from "@/lib/importacao/classificar";
-import { enfileirarTransacoes, parearTransferencias } from "@/lib/importacao/fila";
+import { enfileirarTransacoes, parearTransferencias, PREFIXO_ATALHO } from "@/lib/importacao/fila";
 import {
   autenticar,
   listarContasDoItem,
@@ -33,6 +33,9 @@ type ContaApp = {
   numero_conta: string | null;
   pluggy_account_id: string | null;
   ultima_sincronizacao: string | null;
+  saldo_banco: number | string | null;
+  sem_detalhe: number | string | null;
+  sem_detalhe_desde: string | null;
 };
 
 export type ResultadoSincronizacao = {
@@ -69,6 +72,42 @@ function dataInicial(conta: ContaApp): string {
   return inicioUso && /^\d{4}-\d{2}-\d{2}$/.test(inicioUso) && inicioUso > calculada ? inicioUso : calculada;
 }
 
+/** Depois disso sem o banco detalhar, a diferença é descartada (evita acumular erro). */
+const DIAS_MAXIMOS_SEM_DETALHE = 4;
+
+/**
+ * O banco atualiza o saldo na hora, mas só manda as transações do dia anterior perto do
+ * meio-dia. A variação do saldo que as transações novas não explicam vira "sem detalhe"
+ * (negativo = saiu dinheiro) e aparece em Revisar; some quando o banco detalha.
+ * Cartão de crédito fica de fora: parcelas mexem no limite sem casar com as transações.
+ */
+function semDetalheAtualizado(
+  conta: ContaApp,
+  saldoAgora: number,
+  somaNovas: number,
+): { sem_detalhe: number; sem_detalhe_desde: string | null } {
+  if (conta.saldo_banco == null) return { sem_detalhe: 0, sem_detalhe_desde: null };
+  const anterior = Number(conta.sem_detalhe) || 0;
+  const valor = Math.round((anterior + saldoAgora - Number(conta.saldo_banco) - somaNovas) * 100) / 100;
+  const desde = conta.sem_detalhe_desde ? Date.parse(conta.sem_detalhe_desde) : Date.now();
+  if (Math.abs(valor) < 0.01 || Date.now() - desde > DIAS_MAXIMOS_SEM_DETALHE * 86_400_000) {
+    return { sem_detalhe: 0, sem_detalhe_desde: null };
+  }
+  return { sem_detalhe: valor, sem_detalhe_desde: conta.sem_detalhe_desde ?? new Date().toISOString() };
+}
+
+/** Compras do Apple Pay que chegaram na conta desde a última sincronização (com sinal). */
+async function somaDoAtalhoDesde(db: SupabaseClient, contaId: string, desde: string | null): Promise<number> {
+  if (!desde) return 0;
+  const { data } = await db
+    .from("transacoes_importadas")
+    .select("valor")
+    .eq("conta_id", contaId)
+    .like("id_externo", `${PREFIXO_ATALHO}%`)
+    .gt("created_at", desde);
+  return (data ?? []).reduce((a, r) => a + Number(r.valor), 0);
+}
+
 function bancoPorNome(nome: string): string | null {
   const n = normalizarTexto(nome);
   const banco = BANCOS.find(
@@ -92,7 +131,8 @@ async function obterOuCriarConta(
   p: PluggyConta,
   idsAtuais: ReadonlySet<string>,
 ): Promise<ContaApp> {
-  const campos = "id, nome, tipo, numero_conta, pluggy_account_id, ultima_sincronizacao";
+  const campos =
+    "id, nome, tipo, numero_conta, pluggy_account_id, ultima_sincronizacao, saldo_banco, sem_detalhe, sem_detalhe_desde";
   const { data: contas, error } = await db.from("contas").select(campos).eq("user_id", userId);
   if (error) throw error;
   const lista = (contas ?? []) as ContaApp[];
@@ -151,7 +191,7 @@ export async function carregarNomesTitular(
     .filter(Boolean);
 }
 
-async function carregarRegras(db: SupabaseClient, userId: string): Promise<Map<string, RegraUsuario>> {
+export async function carregarRegras(db: SupabaseClient, userId: string): Promise<Map<string, RegraUsuario>> {
   const { data, error } = await db
     .from("regras_categorizacao")
     .select("padrao, tipo, categoria, descricao")
@@ -307,7 +347,7 @@ export async function sincronizarBanco(
         .filter((t) => cartao || t.status === "POSTED")
         .map((t) => normalizarTransacao(t, contaPluggy));
 
-      const { novas, duplicadas, automaticas } = await enfileirarTransacoes(db, {
+      const { novas, duplicadas, automaticas, somaNovas } = await enfileirarTransacoes(db, {
         contaId: conta.id,
         origem: "Open Finance",
         transacoes,
@@ -325,6 +365,13 @@ export async function sincronizarBanco(
           saldo_banco: contaPluggy.balance,
           saldo_banco_em: new Date().toISOString(),
           ultima_sincronizacao: new Date().toISOString(),
+          ...(cartao
+            ? {}
+            : semDetalheAtualizado(
+                conta,
+                contaPluggy.balance,
+                somaNovas + (await somaDoAtalhoDesde(db, conta.id, conta.ultima_sincronizacao)),
+              )),
         })
         .eq("id", conta.id);
 

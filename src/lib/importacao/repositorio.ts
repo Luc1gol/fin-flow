@@ -18,6 +18,8 @@ export type Conta = {
   saldo_inicial: number;
   data_saldo_inicial: string;
   ultima_sincronizacao: string | null;
+  /** Variação do saldo que o banco ainda não detalhou (negativo = saiu dinheiro). */
+  sem_detalhe?: number;
 };
 
 export type TransacaoImportada = {
@@ -51,11 +53,15 @@ async function usuarioAtual() {
 export async function listarContas(): Promise<Conta[]> {
   const { data, error } = await supabase
     .from("contas")
-    .select("id, nome, banco, tipo, numero_conta, saldo_inicial, data_saldo_inicial, ultima_sincronizacao")
+    .select("id, nome, banco, tipo, numero_conta, saldo_inicial, data_saldo_inicial, ultima_sincronizacao, sem_detalhe")
     .eq("arquivada", false)
     .order("created_at");
   if (error) throw error;
-  return (data ?? []).map((c) => ({ ...c, saldo_inicial: Number(c.saldo_inicial) })) as Conta[];
+  return (data ?? []).map((c) => ({
+    ...c,
+    saldo_inicial: Number(c.saldo_inicial),
+    sem_detalhe: Number(c.sem_detalhe) || 0,
+  })) as Conta[];
 }
 
 export async function criarConta(input: {
