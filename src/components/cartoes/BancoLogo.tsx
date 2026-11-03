@@ -20,7 +20,7 @@ function LogoComFallback({
 }) {
   // Icon Horse → favicon do Google → iniciais. A troca acontece no onError (evento),
   // e o componente pai recria este aqui quando o domínio muda (via `key`).
-  const [tier, setTier] = useState<Tier>("horse");
+  const [tier, setTier] = useState<Tier>(banco.logoGoogle ? "google" : "horse");
 
   if (tier === "fallback") {
     const ini = iniciaisInstituicao(banco.nome);

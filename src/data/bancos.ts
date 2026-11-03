@@ -6,6 +6,8 @@ export type BancoInstituicao = {
   /** Borda superior (Tailwind literal; incluir espessura e cor). */
   colorClass: string;
   radialGlow: string;
+  /** O Icon Horse devolve só uma letra genérica para este domínio: começa pelo favicon do Google. */
+  logoGoogle?: boolean;
 };
 
 /** Instituições pré-cadastradas — ordem alfabética por nome no seletor. */
@@ -70,6 +72,7 @@ export const BANCOS: readonly BancoInstituicao[] = [
     id: "c6",
     nome: "C6 Bank",
     domain: "c6bank.com.br",
+    logoGoogle: true,
     colorClass: "border-t-2 border-t-zinc-500",
     radialGlow: "rgba(113, 113, 122, 0.095)",
   },
