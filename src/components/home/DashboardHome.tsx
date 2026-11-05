@@ -344,8 +344,10 @@ export function DashboardHome() {
 
       <CartaoResumoInicio oculto={oculto} />
 
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:items-start">
-        <div className="flex flex-col gap-5">
+      {/* minmax(0,…) também no celular: sem isso, um nome comprido nas movimentações
+          estica a coluna além da tela e empurra os cards para fora. */}
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-5 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:items-start">
+        <div className="flex min-w-0 flex-col gap-5">
           {/* 1. Saldo e previsão */}
           <section>
             <p className="text-xs text-texto-3">{resumo?.saldoContas ? "Saldo em contas" : "Resultado do mês"}</p>
