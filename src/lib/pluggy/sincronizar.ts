@@ -267,6 +267,31 @@ async function semParcelasJaRecebidas<T extends { idExterno: string; memo: strin
   return transacoes.filter((t) => !t.idExterno.startsWith("previsto:") || !jaTem(t));
 }
 
+/** Parcela prevista ainda em Revisar com data antiga (cálculo anterior): acerta a data. */
+async function corrigirDatasPrevistas(
+  db: SupabaseClient,
+  contaId: string,
+  transacoes: { idExterno: string; data: string }[],
+): Promise<void> {
+  const previstas = transacoes.filter((t) => t.idExterno.startsWith("previsto:"));
+  if (previstas.length === 0) return;
+  const { data } = await db
+    .from("transacoes_importadas")
+    .select("id, id_externo, data")
+    .eq("conta_id", contaId)
+    .eq("status", "pendente")
+    .in(
+      "id_externo",
+      previstas.map((t) => t.idExterno),
+    );
+  for (const r of data ?? []) {
+    const certa = previstas.find((t) => t.idExterno === r.id_externo)?.data;
+    if (certa && certa !== String(r.data).slice(0, 10)) {
+      await db.from("transacoes_importadas").update({ data: certa }).eq("id", r.id);
+    }
+  }
+}
+
 function somarDias(iso: string, dias: number): string {
   const d = new Date(`${iso}T12:00:00Z`);
   d.setUTCDate(d.getUTCDate() + dias);
@@ -614,6 +639,7 @@ export async function sincronizarBanco(
           desde,
         );
         if (cartao) transacoes = await semParcelasJaRecebidas(db, conta.id, transacoes);
+        if (cartao) await corrigirDatasPrevistas(db, conta.id, transacoes);
 
         const { novas, duplicadas, automaticas, somaNovas } = await enfileirarTransacoes(db, {
           contaId: conta.id,

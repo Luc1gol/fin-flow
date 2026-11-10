@@ -13,8 +13,13 @@ export type TransacaoNormalizada = {
 const GENERICOS =
   /^(debito de cart[aã]o|compra (no |com cart[aã]o )?d[eé]bito|pix (enviado|recebido)|transfer[eê]ncia)/i;
 
-/** A Pluggy devolve datas em UTC; o dia que importa é o de Brasília. */
+/**
+ * A Pluggy devolve datas em UTC; o dia que importa é o de Brasília. Exceção: meia-noite UTC
+ * exata é só uma data de calendário (o banco não mandou hora) — converter voltaria um dia
+ * (ex.: compra de 04/11 virava 03/11 e caía na fatura anterior).
+ */
 function dataBrasilia(iso: string): string {
+  if (/^d{4}-d{2}-d{2}(T00:00:00(.0+)?Z)?$/.test(iso)) return iso.slice(0, 10);
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(
     new Date(iso),
   );
