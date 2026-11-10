@@ -176,7 +176,7 @@ export async function carregarProjecao(): Promise<Projecao> {
   const pagamentos = await carregarPagamentosFatura(contasCredito.map((c) => String(c.id)));
   for (const conta of contasCredito) {
     // Fatura já paga antes do vencimento (o banco não avisa): nada a pagar nesse vencimento;
-    // o saldo do cartão são as compras que vão para a fatura seguinte.
+    // a seguinte é estimada pelas compras lançadas (o saldo do banco inclui parcelas futuras).
     const pago = pagamentoDoVencimento(
       {
         id: String(conta.id),
@@ -188,7 +188,7 @@ export async function carregarProjecao(): Promise<Projecao> {
       agora,
     );
     if (pago) {
-      filaBanco.set(conta.id, [0, Math.max(0, numero(conta.saldo_banco))]);
+      filaBanco.set(conta.id, [0]);
       continue;
     }
     const saldo = Math.max(0, numero(conta.saldo_banco));

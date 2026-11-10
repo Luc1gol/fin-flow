@@ -357,6 +357,24 @@ export async function carregarCartoesComBanco(hoje = new Date()): Promise<Cartoe
     }
   }
 
+  // A fatura paga que o banco não mandou entra no histórico pelo pagamento (valor pago).
+  for (const conta of contas) {
+    const pg = conta.pagamento;
+    if (!pg) continue;
+    const lista = (faturasPorConta[conta.id] ??= []);
+    if (lista.some((f) => f.vencimento === pg.vencimentoPago)) continue;
+    lista.unshift({
+      id: `pago-${pg.vencimentoPago}`,
+      contaId: conta.id,
+      vencimento: pg.vencimentoPago,
+      valorTotal: pg.valor,
+      pagamentoMinimo: null,
+      valorPago: pg.valor,
+    });
+    lista.sort((x, y) => y.vencimento.localeCompare(x.vencimento));
+    if (lista.length > 12) lista.length = 12;
+  }
+
   const cartoes: CartaoComBanco[] = manuais.map((c) => {
     const conta = contas.find((k) => k.cartaoId === c.id) ?? null;
     return {

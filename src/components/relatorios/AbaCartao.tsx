@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { CalendarClock, CreditCard, Layers, ShoppingBag } from "lucide-react";
+import { CreditCard, Layers, ShoppingBag } from "lucide-react";
 import type { MeioAnalise } from "@/types/relatorios";
 import { Card, LinhaLista, Secao, Valor } from "@/components/ui/base";
 import { IconeCategoria } from "@/components/ui/IconeCategoria";
-import { dataCurta, dataDoIso } from "@/components/relatorios/dados";
+import { dataCurta } from "@/components/relatorios/dados";
 import {
   CORES_MEIO,
   compromissoFuturo,
@@ -32,11 +32,6 @@ import {
 const COR_ABERTA = "#fbbf24";
 const PARCELAS_INICIAL = 5;
 
-function dataLonga(iso: string): string {
-  return dataDoIso(iso)
-    .toLocaleDateString("pt-BR", { day: "numeric", month: "short" })
-    .replace(".", "");
-}
 
 export function AbaCartao({ ctx }: { ctx: ContextoAnalise }) {
   const [todasParcelas, setTodasParcelas] = useState(false);
@@ -120,17 +115,12 @@ export function AbaCartao({ ctx }: { ctx: ContextoAnalise }) {
           <Card className="px-4 py-3">
             <div className="flex items-end justify-between gap-3">
               <div className="min-w-0">
-                <p className="text-xs text-texto-3">Fatura atual (segundo o banco)</p>
+                {/* O banco informa tudo o que ocupa o limite (inclui parcelas futuras), não a fatura. */}
+                <p className="text-xs text-texto-3">Limite em uso (segundo o banco)</p>
                 <p className="text-xl font-semibold text-texto">
                   <Valor valor={cartoes.devido} />
                 </p>
               </div>
-              {cartoes.proximoVencimento ? (
-                <p className="flex items-center gap-1 pb-1 text-[11px] text-texto-3">
-                  <CalendarClock className="h-3.5 w-3.5" aria-hidden />
-                  vence {dataLonga(cartoes.proximoVencimento)}
-                </p>
-              ) : null}
             </div>
             {cartoes.temLimite ? (
               <div className="mt-2">

@@ -13,7 +13,6 @@ import { createPortal } from "react-dom";
 import {
   CalendarCheck,
   CalendarClock,
-  CheckCircle2,
   ChevronDown,
   CreditCard,
   Landmark,
@@ -137,14 +136,12 @@ function faturaDoCartao(cartao: CartaoUsuario, gastos: GastoCartao[], hoje: Date
   return total;
 }
 
-/** Valor exibido da fatura: o do banco quando vinculado, senão a estimativa pelos lançamentos. */
-function faturaExibida(
-  cartao: CartaoUsuario,
-  conta: ContaCartaoBanco | null,
-  gastos: GastoCartao[],
-  hoje: Date,
-): number {
-  if (conta && conta.saldo !== null) return conta.saldo;
+/**
+ * Valor da fatura atual: as compras do ciclo (lançadas ou ainda em Revisar). O saldo que o
+ * banco informa para o cartão não serve aqui: ele é tudo o que ocupa o limite, inclusive
+ * parcelas de faturas futuras.
+ */
+function faturaExibida(cartao: CartaoUsuario, gastos: GastoCartao[], hoje: Date): number {
   return faturaDoCartao(cartao, gastos, hoje);
 }
 
@@ -430,7 +427,6 @@ function DetalheCartao({
         .sort((a, b) => a.vencimento.localeCompare(b.vencimento))[0]
     : undefined;
   const aPagarFechada = fechada ? fechada.valorTotal - fechada.valorPago : 0;
-  const proxima = fechada ? Math.max(0, fatura - aPagarFechada) : 0;
 
   // No computador o detalhe vira duas colunas. Com histórico, as datas ficam à esquerda (junto
   // da fatura) e o histórico à direita; sem histórico, as datas passam para a direita. A ordem
@@ -493,17 +489,9 @@ function DetalheCartao({
           <p className="flex items-center gap-1.5 text-xs text-texto-3">
             Fatura fechada · vence {dataCurta(dataDeIso(fechada.vencimento))} <SeloBanco />
           </p>
-        ) : doBanco && conta.pagamento ? (
-          <p className="flex items-center gap-1.5 text-xs text-texto-3">
-            Fatura aberta · vence {dataCurta(vencimento)} <SeloBanco />
-          </p>
-        ) : doBanco ? (
-          <p className="flex items-center gap-1.5 text-xs text-texto-3">
-            Fatura atual <SeloBanco />
-          </p>
         ) : (
           <p className="text-xs text-texto-3">
-            Fatura aberta · fecha {dataCurta(ciclo.fechamento)}
+            Fatura atual · fecha {dataCurta(fechamento)} · vence {dataCurta(vencimento)}
           </p>
         )}
         <p className="mt-0.5 text-[28px] font-semibold leading-tight text-texto">
@@ -511,21 +499,14 @@ function DetalheCartao({
         </p>
         {fechada ? (
           <p className="mt-1 text-sm text-texto-2">
-            Próxima fatura (aberta): <Valor valor={proxima} />
-          </p>
-        ) : null}
-        {conta?.pagamento && !fechada ? (
-          <p className="mt-1 flex items-center gap-1.5 text-sm text-positivo">
-            <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden />
-            <span>
-              Fatura de {dataCurta(dataDeIso(conta.pagamento.vencimentoPago))} paga:{" "}
-              <Valor valor={conta.pagamento.valor} /> em {dataCurta(dataDeIso(conta.pagamento.data))}
-            </span>
+            Fatura atual (aberta): <Valor valor={fatura} />
           </p>
         ) : null}
         <p className="mt-0.5 text-[11px] text-texto-3">
           {doBanco
-            ? `${atualizado ? `Atualizado ${atualizado}` : "Valor informado pelo banco"} · ${conta.nome || "conta do banco"}`
+            ? `Compras desde ${dataCurta(ciclo.inicio)}, inclusive as que ainda estão em Revisar${
+                atualizado ? ` · banco atualizado ${atualizado}` : ""
+              }`
             : `Soma das despesas lançadas neste cartão desde ${dataCurta(ciclo.inicio)}.`}
         </p>
       </div>
@@ -667,18 +648,37 @@ export function CartoesScreen() {
             .eq("tipo", "despesa")
             .like("conta_cartao", "Cartão %")
             .gte("data", desde);
+          // Compras do banco que ainda estão em Revisar também já são da fatura.
+          const rotuloPorConta = new Map(
+            dados.cartoes
+              .filter((c) => c.conta)
+              .map((c) => [c.conta!.id, labelContaCartaoPersistido(c.nome).toLowerCase()]),
+          );
+          const pend =
+            rotuloPorConta.size > 0
+              ? await supabase
+                  .from("transacoes_importadas")
+                  .select("conta_id, data, valor")
+                  .in("conta_id", [...rotuloPorConta.keys()])
+                  .eq("status", "pendente")
+                  .lt("valor", 0)
+                  .gte("data", desde)
+              : { data: [], error: null };
           if (cancelado) return;
-          if (lanc.error) {
-            console.error(lanc.error);
-          } else {
-            setGastos(
-              (lanc.data ?? []).map((r) => ({
-                conta: String(r.conta_cartao ?? "").trim().toLowerCase(),
-                data: String(r.data ?? "").slice(0, 10),
-                valor: Math.abs(parseNumero(r.valor)),
-              })),
-            );
-          }
+          if (lanc.error) console.error(lanc.error);
+          if (pend.error) console.error(pend.error);
+          setGastos([
+            ...(lanc.data ?? []).map((r) => ({
+              conta: String(r.conta_cartao ?? "").trim().toLowerCase(),
+              data: String(r.data ?? "").slice(0, 10),
+              valor: Math.abs(parseNumero(r.valor)),
+            })),
+            ...(pend.data ?? []).map((r) => ({
+              conta: rotuloPorConta.get(String(r.conta_id)) ?? "",
+              data: String(r.data ?? "").slice(0, 10),
+              valor: Math.abs(parseNumero(r.valor)),
+            })),
+          ]);
         }
       } catch (err) {
         console.error(err);
@@ -712,10 +712,10 @@ export function CartoesScreen() {
     const hoje = hojeSemHora();
     const mapa = new Map<string, number>();
     for (const c of cartoes) {
-      mapa.set(c.id, faturaExibida(c, contaPorCartao.get(c.id) ?? null, gastos, hoje));
+      mapa.set(c.id, faturaExibida(c, gastos, hoje));
     }
     return mapa;
-  }, [cartoes, contaPorCartao, gastos]);
+  }, [cartoes, gastos]);
 
   const totalFaturas = useMemo(
     () => [...faturas.values()].reduce((acc, v) => acc + v, 0),
