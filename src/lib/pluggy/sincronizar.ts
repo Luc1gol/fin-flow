@@ -216,7 +216,9 @@ function parcelasPrevistas(lista: PluggyTransacao[], contaPluggy: PluggyConta) {
     const total = t.creditCardMetadata!.totalInstallments!;
     const base = normalizarTransacao(t, contaPluggy);
     for (let i = n + 1; i <= total; i++) {
-      const data = somarMeses(base.data, i - n);
+      // O banco cobra as parcelas no mesmo dia do mês da compra pela data UTC (compra às 21h de
+      // 03/10 em Brasília = 04/10 UTC → parcelas no dia 4), não pela data de Brasília.
+      const data = somarMeses(t.date.slice(0, 10), i - n);
       if (data > limite) break;
       previstas.push({
         pendente: true,
