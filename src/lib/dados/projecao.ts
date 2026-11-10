@@ -2,6 +2,7 @@ import { supabase } from "@/lib/supabase";
 import { labelContaCartaoPersistido } from "@/lib/conta-cartao-lancamento";
 import { normalizarTexto } from "@/lib/importacao/classificar";
 import { carregarContasFixas } from "@/lib/dados/recorrencias";
+import { carregarPagamentosFatura, pagamentoDoVencimento } from "@/lib/dados/cartoes-banco";
 
 export type TipoEvento = "conta_fixa" | "receita_fixa" | "fatura" | "agendado";
 
@@ -93,7 +94,7 @@ export async function carregarProjecao(): Promise<Projecao> {
   const [contas, lanc, cartoes, fixas] = await Promise.all([
     supabase
       .from("contas")
-      .select("id, tipo, banco, cartao_id, saldo_banco, saldo_banco_em, fatura_vencimento")
+      .select("id, tipo, banco, cartao_id, saldo_banco, saldo_banco_em, fatura_vencimento, fatura_fechamento")
       .eq("arquivada", false),
     supabase
       .from("lancamentos")
@@ -172,7 +173,24 @@ export async function carregarProjecao(): Promise<Projecao> {
     : { data: [] };
   /** Valores do banco para as próximas faturas de cada cartão conectado, em ordem. */
   const filaBanco = new Map<unknown, number[]>();
+  const pagamentos = await carregarPagamentosFatura(contasCredito.map((c) => String(c.id)));
   for (const conta of contasCredito) {
+    // Fatura já paga antes do vencimento (o banco não avisa): nada a pagar nesse vencimento;
+    // o saldo do cartão são as compras que vão para a fatura seguinte.
+    const pago = pagamentoDoVencimento(
+      {
+        id: String(conta.id),
+        banco: (conta.banco as string | null) ?? null,
+        faturaFechamento: (conta.fatura_fechamento as string | null)?.slice(0, 10) ?? null,
+        faturaVencimento: (conta.fatura_vencimento as string | null)?.slice(0, 10) ?? null,
+      },
+      pagamentos,
+      agora,
+    );
+    if (pago) {
+      filaBanco.set(conta.id, [0, Math.max(0, numero(conta.saldo_banco))]);
+      continue;
+    }
     const saldo = Math.max(0, numero(conta.saldo_banco));
     const fechada = (faturasAbertas ?? [])
       .filter((f) => f.conta_id === conta.id)

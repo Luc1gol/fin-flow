@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { fechamentoDaFatura } from "@/lib/cartao-datas";
 
 /** Cartão cadastrado manualmente pelo usuário (tabela `cartoes`). */
 export type CartaoManual = {
@@ -28,6 +29,8 @@ export type ContaCartaoBanco = {
   faturaVencimento: string | null;
   pagamentoMinimo: number | null;
   ultimaSincronizacao: string | null;
+  /** Pagamento da fatura que vencia em `vencimentoPago` (o vencimento acima já é o seguinte). */
+  pagamento?: { valor: number; data: string; vencimentoPago: string } | null;
 };
 
 /** Fatura vinda do banco (tabela `faturas`). */
@@ -165,6 +168,60 @@ export function proximoVencimento(
   return null;
 }
 
+/** Pagamento de fatura que chegou do banco na conta do cartão (entrada positiva). */
+export type PagamentoCartao = { contaId: string; data: string; valor: number };
+
+/** Pagamentos de fatura dos últimos 60 dias nas contas de cartão indicadas. */
+export async function carregarPagamentosFatura(contaIds: string[]): Promise<PagamentoCartao[]> {
+  if (contaIds.length === 0) return [];
+  const desde = new Date();
+  desde.setDate(desde.getDate() - 60);
+  const { data, error } = await supabase
+    .from("transacoes_importadas")
+    .select("conta_id, data, valor")
+    .in("conta_id", contaIds)
+    .gt("valor", 0)
+    .ilike("memo", "pagamento de fatura%")
+    .gte("data", iso(desde));
+  if (error) {
+    console.error("[cartoes-banco] pagamentos:", error);
+    return [];
+  }
+  return (data ?? []).map((r) => ({
+    contaId: String(r.conta_id),
+    data: String(r.data).slice(0, 10),
+    valor: numero(r.valor),
+  }));
+}
+
+/**
+ * Alguns bancos (ex.: C6) não avisam pelo Open Finance que a fatura foi paga: o vencimento
+ * continua o mesmo até passar. Se houve pagamento entre o fechamento e o vencimento dessa
+ * fatura, ela está paga e o que vale é o vencimento seguinte.
+ */
+export function pagamentoDoVencimento(
+  conta: { id: string; banco: string | null; faturaFechamento: string | null; faturaVencimento: string | null },
+  pagamentos: PagamentoCartao[],
+  hoje = new Date(),
+): { valor: number; data: string; vencimentoPago: string; proximoVencimento: string } | null {
+  const venc = proximoVencimento(conta.faturaVencimento, null, hoje);
+  if (!venc) return null;
+  const [a, m, d] = venc.split("-").map(Number) as [number, number, number];
+  const umMesAntes = iso(diaNoMes(a, m - 2, d));
+  // Fechamento desta fatura: o do banco, se for deste ciclo; senão, calculado pelo vencimento.
+  const fechamento =
+    (conta.faturaFechamento && conta.faturaFechamento > umMesAntes && conta.faturaFechamento <= venc
+      ? conta.faturaFechamento
+      : null) ??
+    fechamentoDaFatura(null, venc, conta.banco) ??
+    iso(new Date(a, m - 1, d - 10));
+  const doCiclo = pagamentos.filter((p) => p.contaId === conta.id && p.data >= fechamento && p.data <= venc);
+  if (doCiclo.length === 0) return null;
+  const valor = doCiclo.reduce((a, p) => a + p.valor, 0);
+  const data = doCiclo.map((p) => p.data).sort().pop()!;
+  return { valor, data, vencimentoPago: venc, proximoVencimento: iso(diaNoMes(a, m, d)) };
+}
+
 /** Fatura considerada paga quando o valor pago cobre o total. */
 export function faturaPaga(f: FaturaBanco): boolean {
   return f.valorPago + 0.005 >= f.valorTotal;
@@ -267,6 +324,17 @@ export async function carregarCartoesComBanco(hoje = new Date()): Promise<Cartoe
     }
     const conta = contas.find((c) => c.id === par.contaId);
     if (conta) conta.cartaoId = par.cartaoId;
+  }
+
+  // Fatura já paga (o banco não avisa): passa para o vencimento seguinte.
+  const pagamentos = await carregarPagamentosFatura(contas.map((c) => c.id));
+  for (const conta of contas) {
+    const pago = pagamentoDoVencimento(conta, pagamentos, hoje);
+    if (!pago) continue;
+    conta.pagamento = { valor: pago.valor, data: pago.data, vencimentoPago: pago.vencimentoPago };
+    conta.faturaVencimento = pago.proximoVencimento;
+    conta.faturaFechamento = null;
+    conta.pagamentoMinimo = null;
   }
 
   const faturasPorConta: Record<string, FaturaBanco[]> = {};

@@ -1,5 +1,5 @@
 import { supabase } from "@/lib/supabase";
-import { proximoVencimento } from "@/lib/dados/cartoes-banco";
+import { carregarPagamentosFatura, pagamentoDoVencimento, proximoVencimento } from "@/lib/dados/cartoes-banco";
 
 export type MovimentoResumo = {
   id: string;
@@ -63,7 +63,7 @@ export async function carregarResumoInicio(ano: number, mes0: number): Promise<R
       .order("created_at", { ascending: false }),
     supabase
       .from("contas")
-      .select("tipo, saldo_banco, saldo_banco_em, cartao_id, fatura_vencimento")
+      .select("id, tipo, banco, saldo_banco, saldo_banco_em, cartao_id, fatura_vencimento, fatura_fechamento")
       .eq("arquivada", false),
     supabase
       .from("transacoes_importadas")
@@ -147,11 +147,27 @@ export async function carregarResumoInicio(ano: number, mes0: number): Promise<R
 
   const hoje = new Date();
   let cartaoVencendo: ResumoInicio["cartaoVencendo"] = null;
+  const pagamentos = await carregarPagamentosFatura(
+    (contas.data ?? []).filter((k) => k.tipo === "cartao_credito").map((k) => String(k.id)),
+  );
   for (const c of cartoes.data ?? []) {
-    // Cartão conectado ao banco: vale o vencimento real informado por ele.
+    // Cartão conectado ao banco: vale o vencimento real informado por ele (ou o seguinte,
+    // se a fatura já foi paga).
     const vinculada = (contas.data ?? []).find((k) => k.cartao_id === c.id);
+    const pago = vinculada
+      ? pagamentoDoVencimento(
+          {
+            id: String(vinculada.id),
+            banco: (vinculada.banco as string | null) ?? null,
+            faturaFechamento: (vinculada.fatura_fechamento as string | null)?.slice(0, 10) ?? null,
+            faturaVencimento: (vinculada.fatura_vencimento as string | null)?.slice(0, 10) ?? null,
+          },
+          pagamentos,
+          hoje,
+        )
+      : null;
     const proximo = proximoVencimento(
-      (vinculada?.fatura_vencimento as string | null | undefined) ?? null,
+      pago?.proximoVencimento ?? (vinculada?.fatura_vencimento as string | null | undefined) ?? null,
       Number(c.dia_vencimento) || null,
       hoje,
     );
