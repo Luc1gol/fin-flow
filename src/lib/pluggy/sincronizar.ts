@@ -14,7 +14,7 @@ import {
   type PluggyItem,
   type PluggyTransacao,
 } from "@/lib/pluggy/cliente";
-import { normalizarTransacao } from "@/lib/pluggy/mapear";
+import { normalizarTransacao, type TransacaoNormalizada } from "@/lib/pluggy/mapear";
 import { fechamentoDaFatura } from "@/lib/cartao-datas";
 
 /**
@@ -187,17 +187,90 @@ function somarMeses(iso: string, meses: number): string {
   return new Date(Date.UTC(a, m - 1 + meses, Math.min(d, ultimo))).toISOString().slice(0, 10);
 }
 
+/** Parcelas previstas entram até este tanto de dias à frente (a fatura aberta). */
+const DIAS_PARCELAS_PREVISTAS = 30;
+
 /**
- * Data em que a parcela cai na fatura. O banco às vezes manda a parcela 2/3 com a data da
- * compra original (de meses atrás): aí ela fica na data da compra + (n − 1) meses, que é
- * quando é cobrada. Se a data já é a da parcela, fica como veio.
+ * O C6 já soma na fatura as próximas parcelas de compras antigas, mas só as manda pelo Open
+ * Finance semanas depois. Cada parcela vem com a data da anterior + 1 mês, então dá para
+ * prever: a partir da última parcela recebida de cada compra, cria as seguintes (mesmo valor).
+ * Quando a de verdade chegar, ela casa com a prevista pela data e valor e não duplica.
  */
-function dataDaParcela(t: PluggyTransacao, data: string, desde: string): string {
-  const n = t.creditCardMetadata?.installmentNumber ?? 1;
-  if (!t.creditCardMetadata?.totalInstallments || t.creditCardMetadata.totalInstallments < 2 || n < 2) return data;
-  const compra = t.creditCardMetadata.purchaseDate?.slice(0, 10) ?? null;
-  const dataEhDaCompra = compra ? compra === t.date.slice(0, 10) : data < desde;
-  return dataEhDaCompra ? somarMeses(data, n - 1) : data;
+function parcelasPrevistas(lista: PluggyTransacao[], contaPluggy: PluggyConta) {
+  const limite = somarDias(hojeBrasilia(), DIAS_PARCELAS_PREVISTAS);
+  const ultimas = new Map<string, PluggyTransacao>();
+  for (const t of lista) {
+    const m = t.creditCardMetadata;
+    if (!m?.totalInstallments || m.totalInstallments < 2 || !m.installmentNumber) continue;
+    const chave = [
+      m.purchaseDate?.slice(0, 10) ?? "",
+      m.totalInstallments,
+      t.description.replace(/s+/g, " ").trim().slice(0, 18).toUpperCase(),
+    ].join("|");
+    const atual = ultimas.get(chave);
+    if (!atual || (atual.creditCardMetadata?.installmentNumber ?? 0) < m.installmentNumber) ultimas.set(chave, t);
+  }
+  const previstas: (TransacaoNormalizada & { pendente: boolean })[] = [];
+  for (const t of ultimas.values()) {
+    const n = t.creditCardMetadata!.installmentNumber!;
+    const total = t.creditCardMetadata!.totalInstallments!;
+    const base = normalizarTransacao(t, contaPluggy);
+    for (let i = n + 1; i <= total; i++) {
+      const data = somarMeses(base.data, i - n);
+      if (data > limite) break;
+      previstas.push({
+        pendente: true,
+        idExterno: `previsto:${t.id}:${i}`,
+        data,
+        valor: base.valor,
+        memo: base.memo.endsWith(`(${n}/${total})`)
+          ? `${base.memo.slice(0, -`(${n}/${total})`.length)}(${i}/${total})`
+          : `${base.memo} (${i}/${total})`,
+      });
+    }
+  }
+  return previstas;
+}
+
+/**
+ * Tira as parcelas previstas que o app já tem com outro id e outra data (ex.: a 3/3 que veio
+ * do banco e depois foi estornada e sumiu da lista: não pode ser prevista de novo).
+ */
+async function semParcelasJaRecebidas<T extends { idExterno: string; memo: string; valor: number }>(
+  db: SupabaseClient,
+  contaId: string,
+  transacoes: T[],
+): Promise<T[]> {
+  const previstas = transacoes.filter((t) => t.idExterno.startsWith("previsto:"));
+  if (previstas.length === 0) return transacoes;
+  const { data } = await db
+    .from("transacoes_importadas")
+    .select("id_externo, memo, valor")
+    .eq("conta_id", contaId)
+    .like("memo", "%/%)");
+  const parcela = (memo: string) => /\((\d+\/\d+)\)$/.exec(memo)?.[1] ?? "";
+  const nome = (memo: string) =>
+    memo
+      .replace(/\s*\(\d+\/\d+\)$/, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 12)
+      .toUpperCase();
+  const jaTem = (t: T) =>
+    (data ?? []).some(
+      (r) =>
+        r.id_externo !== t.idExterno &&
+        Math.abs(Number(r.valor) - t.valor) < 0.02 &&
+        parcela(String(r.memo)) === parcela(t.memo) &&
+        nome(String(r.memo)) === nome(t.memo),
+    );
+  return transacoes.filter((t) => !t.idExterno.startsWith("previsto:") || !jaTem(t));
+}
+
+function somarDias(iso: string, dias: number): string {
+  const d = new Date(`${iso}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + dias);
+  return d.toISOString().slice(0, 10);
 }
 
 /** Depois disso sem o banco detalhar, a diferença é descartada (evita acumular erro). */
@@ -478,10 +551,7 @@ function transacoesParaFila(lista: PluggyTransacao[], contaPluggy: PluggyConta, 
   const hoje = hojeBrasilia();
   const normalizadas = lista.map((t) => ({ pendente: t.status === "PENDING", ...normalizarTransacao(t, contaPluggy) }));
   if (contaPluggy.type === "CREDIT") {
-    // Parcelas entram na data em que caem na fatura; o resto, só a partir de `desde`.
-    return normalizadas
-      .map((n, i) => ({ ...n, data: dataDaParcela(lista[i]!, n.data, desde) }))
-      .filter((n) => n.data >= desde);
+    return [...normalizadas, ...parcelasPrevistas(lista, contaPluggy)].filter((n) => n.data >= desde);
   }
   const definitivas = normalizadas.filter((t) => !t.pendente);
   return normalizadas.filter(
@@ -538,11 +608,12 @@ export async function sincronizarBanco(
         const desde = dataInicial(conta, item?.lastUpdatedAt ?? null);
         // No cartão, busca mais para trás: parcelas de compras antigas caem nas faturas de agora.
         const desdeBusca = cartao ? [desde, diasAtras(DIAS_PARCELAS_ANTIGAS)].sort()[0]! : desde;
-        const transacoes = transacoesParaFila(
+        let transacoes = transacoesParaFila(
           await listarTransacoes(apiKey, contaPluggy.id, desdeBusca),
           contaPluggy,
           desde,
         );
+        if (cartao) transacoes = await semParcelasJaRecebidas(db, conta.id, transacoes);
 
         const { novas, duplicadas, automaticas, somaNovas } = await enfileirarTransacoes(db, {
           contaId: conta.id,
