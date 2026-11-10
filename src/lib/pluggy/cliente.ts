@@ -65,6 +65,8 @@ export type PluggyTransacao = {
   creditCardMetadata?: {
     installmentNumber?: number | null;
     totalInstallments?: number | null;
+    /** Data da compra original (nas parcelas). */
+    purchaseDate?: string | null;
   } | null;
 };
 

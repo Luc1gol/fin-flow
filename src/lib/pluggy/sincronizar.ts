@@ -106,6 +106,12 @@ export async function situacaoDosBancos(): Promise<BancoConectado[]> {
   );
 }
 
+function diasAtras(dias: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - dias);
+  return d.toISOString().slice(0, 10);
+}
+
 function hojeBrasilia(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
 }
@@ -140,6 +146,28 @@ function dataInicial(conta: ContaApp, bancoAtualizadoEm: string | null): string 
   // A partir de quando o usuário passou a usar o app (ex.: 2026-11-01): nada antes disso entra.
   const inicioUso = process.env.FINFLOW_DATA_INICIO?.trim();
   return inicioUso && /^\d{4}-\d{2}-\d{2}$/.test(inicioUso) && inicioUso > calculada ? inicioUso : calculada;
+}
+
+/** No cartão, busca até este tanto para trás para achar parcelas de compras antigas. */
+const DIAS_PARCELAS_ANTIGAS = 365;
+
+function somarMeses(iso: string, meses: number): string {
+  const [a, m, d] = iso.split("-").map(Number) as [number, number, number];
+  const ultimo = new Date(Date.UTC(a, m - 1 + meses + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(a, m - 1 + meses, Math.min(d, ultimo))).toISOString().slice(0, 10);
+}
+
+/**
+ * Data em que a parcela cai na fatura. O banco às vezes manda a parcela 2/3 com a data da
+ * compra original (de meses atrás): aí ela fica na data da compra + (n − 1) meses, que é
+ * quando é cobrada. Se a data já é a da parcela, fica como veio.
+ */
+function dataDaParcela(t: PluggyTransacao, data: string, desde: string): string {
+  const n = t.creditCardMetadata?.installmentNumber ?? 1;
+  if (!t.creditCardMetadata?.totalInstallments || t.creditCardMetadata.totalInstallments < 2 || n < 2) return data;
+  const compra = t.creditCardMetadata.purchaseDate?.slice(0, 10) ?? null;
+  const dataEhDaCompra = compra ? compra === t.date.slice(0, 10) : data < desde;
+  return dataEhDaCompra ? somarMeses(data, n - 1) : data;
 }
 
 /** Depois disso sem o banco detalhar, a diferença é descartada (evita acumular erro). */
@@ -416,10 +444,15 @@ async function registrarPatrimonio(db: SupabaseClient, userId: string): Promise<
  * logo — o banco às vezes leva um dia para marcá-las como definitivas. No cartão,
  * PENDING são as compras da fatura aberta.
  */
-function transacoesParaFila(lista: PluggyTransacao[], contaPluggy: PluggyConta) {
+function transacoesParaFila(lista: PluggyTransacao[], contaPluggy: PluggyConta, desde: string) {
   const hoje = hojeBrasilia();
   const normalizadas = lista.map((t) => ({ pendente: t.status === "PENDING", ...normalizarTransacao(t, contaPluggy) }));
-  if (contaPluggy.type === "CREDIT") return normalizadas;
+  if (contaPluggy.type === "CREDIT") {
+    // Parcelas entram na data em que caem na fatura; o resto, só a partir de `desde`.
+    return normalizadas
+      .map((n, i) => ({ ...n, data: dataDaParcela(lista[i]!, n.data, desde) }))
+      .filter((n) => n.data >= desde);
+  }
   const definitivas = normalizadas.filter((t) => !t.pendente);
   return normalizadas.filter(
     (t) =>
@@ -472,9 +505,13 @@ export async function sincronizarBanco(
       for (const contaPluggy of contas) {
         const conta = await obterOuCriarConta(db, userId, contaPluggy, idsAtuais);
         const cartao = contaPluggy.type === "CREDIT";
+        const desde = dataInicial(conta, item?.lastUpdatedAt ?? null);
+        // No cartão, busca mais para trás: parcelas de compras antigas caem nas faturas de agora.
+        const desdeBusca = cartao ? [desde, diasAtras(DIAS_PARCELAS_ANTIGAS)].sort()[0]! : desde;
         const transacoes = transacoesParaFila(
-          await listarTransacoes(apiKey, contaPluggy.id, dataInicial(conta, item?.lastUpdatedAt ?? null)),
+          await listarTransacoes(apiKey, contaPluggy.id, desdeBusca),
           contaPluggy,
+          desde,
         );
 
         const { novas, duplicadas, automaticas, somaNovas } = await enfileirarTransacoes(db, {
