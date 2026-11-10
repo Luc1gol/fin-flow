@@ -67,6 +67,7 @@ export type PluggyTransacao = {
     totalInstallments?: number | null;
     /** Data da compra original (nas parcelas). */
     purchaseDate?: string | null;
+    billId?: string | null;
   } | null;
 };
 

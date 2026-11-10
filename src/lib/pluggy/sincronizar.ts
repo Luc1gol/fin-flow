@@ -92,6 +92,36 @@ function situacaoDoItem(item: PluggyItem | null, contas: PluggyConta[], itemId: 
   };
 }
 
+/**
+ * Diagnóstico (só leitura): parcelas do cartão como a Pluggy manda, para entender em que
+ * fatura cada uma cai. Usado só pelo dono, sob demanda.
+ */
+export async function diagnosticoParcelas(): Promise<unknown[]> {
+  const apiKey = await autenticar();
+  const saida: unknown[] = [];
+  for (const itemId of pluggyItemIds()) {
+    const contas = await listarContasDoItem(apiKey, itemId).catch(() => [] as PluggyConta[]);
+    for (const c of contas.filter((k) => k.type === "CREDIT")) {
+      const lista = await listarTransacoes(apiKey, c.id, diasAtras(400));
+      for (const t of lista) {
+        const m = t.creditCardMetadata;
+        if (!m?.totalInstallments || m.totalInstallments < 2) continue;
+        saida.push({
+          conta: c.name,
+          data: t.date,
+          descricao: t.description,
+          valor: t.amount,
+          status: t.status,
+          parcela: `${m.installmentNumber ?? "?"}/${m.totalInstallments}`,
+          compra: m.purchaseDate ?? null,
+          fatura: m.billId ?? null,
+        });
+      }
+    }
+  }
+  return saida;
+}
+
 /** Só consulta a situação de cada banco (sem buscar transações): usado ao abrir Revisar. */
 export async function situacaoDosBancos(): Promise<BancoConectado[]> {
   const apiKey = await autenticar();

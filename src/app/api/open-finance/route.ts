@@ -1,6 +1,11 @@
 import { createClient, type SupabaseClient, type User } from "@supabase/supabase-js";
 import { pluggyConfigurado } from "@/lib/pluggy/cliente";
-import { carregarNomesTitular, sincronizarBanco, situacaoDosBancos } from "@/lib/pluggy/sincronizar";
+import {
+  carregarNomesTitular,
+  diagnosticoParcelas,
+  sincronizarBanco,
+  situacaoDosBancos,
+} from "@/lib/pluggy/sincronizar";
 
 export const maxDuration = 60;
 
@@ -33,6 +38,9 @@ export async function GET(request: Request) {
   if (auth instanceof Response) return auth;
   const disponivel = pluggyConfigurado() && auth.permitido;
   if (!disponivel) return Response.json({ disponivel, bancos: [] });
+  if (new URL(request.url).searchParams.get("diagnostico") === "parcelas") {
+    return Response.json({ parcelas: await diagnosticoParcelas() });
+  }
   // Situação de cada banco para os cards de Revisar; se a Pluggy falhar, a tela abre igual.
   const bancos = await situacaoDosBancos().catch((e) => {
     console.error("[open-finance] situação", e);
