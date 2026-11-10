@@ -189,3 +189,86 @@ export async function buscarLancamentosExtratoParaUsuario(
   const rows = (data ?? []) as Record<string, unknown>[];
   return rows.map(mapLancamentoRowFromDb);
 }
+
+const MESES_CURTOS = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+const MESES_LONGOS = [
+  "janeiro",
+  "fevereiro",
+  "março",
+  "abril",
+  "maio",
+  "junho",
+  "julho",
+  "agosto",
+  "setembro",
+  "outubro",
+  "novembro",
+  "dezembro",
+];
+
+export type JanelaComparacao = {
+  atual: { min: string; max: string };
+  anterior: { min: string; max: string };
+  /** Ex.: "vs 1–10 de out", "vs setembro", "vs 7 dias anteriores". */
+  rotulo: string;
+};
+
+/**
+ * O período com que comparar as entradas e saídas do Extrato: o mesmo pedaço do mês anterior
+ * no mês atual (1 a hoje), o mês anterior inteiro, ou o mesmo número de dias logo antes.
+ */
+export function janelaComparacao(
+  preset: PeriodoPresetId,
+  dataInicio: string,
+  dataFim: string,
+): JanelaComparacao | null {
+  const now = new Date();
+  now.setHours(12, 0, 0, 0);
+  const iso = formatISODateLocal;
+  if (preset === "mes_atual") {
+    const dia = now.getDate();
+    const ultimoAnterior = new Date(now.getFullYear(), now.getMonth(), 0).getDate();
+    const ateAnterior = Math.min(dia, ultimoAnterior);
+    const mesAnterior = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    return {
+      atual: { min: iso(new Date(now.getFullYear(), now.getMonth(), 1)), max: iso(now) },
+      anterior: { min: iso(mesAnterior), max: iso(new Date(now.getFullYear(), now.getMonth() - 1, ateAnterior)) },
+      rotulo: `vs 1–${ateAnterior} de ${MESES_CURTOS[mesAnterior.getMonth()]}`,
+    };
+  }
+  if (preset === "mes_anterior") {
+    const antes = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+    return {
+      atual: {
+        min: iso(new Date(now.getFullYear(), now.getMonth() - 1, 1)),
+        max: iso(new Date(now.getFullYear(), now.getMonth(), 0)),
+      },
+      anterior: { min: iso(antes), max: iso(new Date(now.getFullYear(), now.getMonth() - 1, 0)) },
+      rotulo: `vs ${MESES_LONGOS[antes.getMonth()]}`,
+    };
+  }
+  const deslocar = (base: string, dias: number) => {
+    const d = new Date(`${base}T12:00:00`);
+    d.setDate(d.getDate() + dias);
+    return iso(d);
+  };
+  if (preset === "7d") {
+    const min = deslocar(iso(now), -6);
+    return {
+      atual: { min, max: iso(now) },
+      anterior: { min: deslocar(min, -7), max: deslocar(min, -1) },
+      rotulo: "vs 7 dias anteriores",
+    };
+  }
+  // Personalizado: o mesmo número de dias logo antes do início escolhido.
+  let min = dataInicio.trim().slice(0, 10);
+  let max = dataFim.trim().slice(0, 10);
+  if (!min || !max) return null;
+  if (min > max) [min, max] = [max, min];
+  const dias = Math.round((Date.parse(`${max}T12:00:00`) - Date.parse(`${min}T12:00:00`)) / 86_400_000) + 1;
+  return {
+    atual: { min, max },
+    anterior: { min: deslocar(min, -dias), max: deslocar(min, -1) },
+    rotulo: "vs período anterior",
+  };
+}

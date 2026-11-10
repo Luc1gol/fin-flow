@@ -62,12 +62,14 @@ import {
   formatDdMmYyyy,
   formatISODateLocal,
   isoNoIntervalo,
+  janelaComparacao,
   labelChipPeriodo,
   labelPresetPeriodo,
   primeiraDataInclusivePreset,
   tituloGrupoData,
   ultimaDataInclusivePreset,
 } from "@/components/extrato/extrato-utils";
+import { VariacaoPeriodo } from "@/components/ui/VariacaoPeriodo";
 
 export {
   PERIODO_PADRAO_EXTRATO,
@@ -597,8 +599,10 @@ export function ExtratoScreen() {
     return base.filter((l) => isoNoIntervalo(l.dataISO, min, max));
   }, [lancamentosDoUsuario, periodoSelecionado, dataInicio, dataFim]);
 
-  const lancamentosFiltrados = useMemo(() => {
-    let list = lancamentosNoPeriodo;
+  /** Filtros da tela (busca, categorias, tags, cartões, meios), sem o período. */
+  const aplicarFiltros = useCallback(
+    (base: typeof lancamentosNoPeriodo) => {
+    let list = base;
     const q = busca.trim().toLowerCase();
     if (q.length > 0) {
       list = list.filter((l) => l.descricao.toLowerCase().includes(q));
@@ -627,14 +631,34 @@ export function ExtratoScreen() {
       });
     }
     return list;
-  }, [
-    lancamentosNoPeriodo,
-    busca,
-    categoriasSelecionadas,
-    tagsSelecionadas,
-    cartoesSelecionados,
-    meiosPagamentoSelecionados,
-  ]);
+    },
+    [busca, categoriasSelecionadas, tagsSelecionadas, cartoesSelecionados, meiosPagamentoSelecionados],
+  );
+
+  const lancamentosFiltrados = useMemo(
+    () => aplicarFiltros(lancamentosNoPeriodo),
+    [aplicarFiltros, lancamentosNoPeriodo],
+  );
+
+  /** Entradas e saídas do mesmo pedaço do período anterior, com os mesmos filtros. */
+  const comparacao = useMemo(() => {
+    const janela = janelaComparacao(periodoSelecionado, dataInicio, dataFim);
+    if (!janela) return null;
+    const somar = (min: string, max: string) => {
+      let entradas = 0;
+      let saidas = 0;
+      for (const l of aplicarFiltros(lancamentosDoUsuario.filter((x) => isoNoIntervalo(x.dataISO, min, max)))) {
+        if (l.tipo === "receita") entradas += l.valor;
+        else if (l.tipo === "despesa") saidas += l.valor;
+      }
+      return { entradas, saidas };
+    };
+    return {
+      rotulo: janela.rotulo,
+      atual: somar(janela.atual.min, janela.atual.max),
+      anterior: somar(janela.anterior.min, janela.anterior.max),
+    };
+  }, [aplicarFiltros, lancamentosDoUsuario, periodoSelecionado, dataInicio, dataFim]);
 
   const handleExportCSV = useCallback(() => {
     if (lancamentosFiltrados.length === 0) return;
@@ -865,6 +889,14 @@ export function ExtratoScreen() {
             <p className="mt-0.5 text-[15px] font-semibold text-positivo">
               {carregando ? "…" : <Valor valor={totaisFiltrados.entradas} />}
             </p>
+            {comparacao && !carregando ? (
+              <VariacaoPeriodo
+                atual={comparacao.atual.entradas}
+                anterior={comparacao.anterior.entradas}
+                rotulo={comparacao.rotulo}
+                subirEhBom
+              />
+            ) : null}
           </Card>
           <Card className="px-3 py-2.5">
             <p className="flex items-center gap-1 text-xs text-texto-3">
@@ -873,6 +905,14 @@ export function ExtratoScreen() {
             <p className="mt-0.5 text-[15px] font-semibold text-negativo">
               {carregando ? "…" : <Valor valor={totaisFiltrados.saidas} />}
             </p>
+            {comparacao && !carregando ? (
+              <VariacaoPeriodo
+                atual={comparacao.atual.saidas}
+                anterior={comparacao.anterior.saidas}
+                rotulo={comparacao.rotulo}
+                subirEhBom={false}
+              />
+            ) : null}
           </Card>
         </div>
         {!carregando ? (

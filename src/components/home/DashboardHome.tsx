@@ -20,6 +20,7 @@ import {
 import { useDashboardPeriod } from "@/components/layout/dashboard-period-context";
 import { ITENS_NAV_EXTRAS } from "@/components/layout/BottomNav";
 import { CartaoResumoInicio } from "@/components/resumo/CartaoResumoInicio";
+import { VariacaoPeriodo } from "@/components/ui/VariacaoPeriodo";
 import { Card, LinhaLista, Secao, Valor } from "@/components/ui/base";
 import { IconeCategoria } from "@/components/ui/IconeCategoria";
 import { carregarResumoInicio, type ResumoInicio } from "@/lib/dados/inicio";
@@ -145,16 +146,6 @@ function montarAvisos(
   return avisos;
 }
 
-/** "▲ 12% vs 1–15 de set": compara sempre o mesmo pedaço do mês anterior. */
-function Variacao({ pct, rotulo, visivel }: { pct: number | null; rotulo: string; visivel: boolean }) {
-  if (pct == null || !visivel) return null;
-  return (
-    <p className="mt-0.5 text-[11px] text-texto-3">
-      {pct === 0 ? "igual" : `${pct > 0 ? "▲" : "▼"} ${Math.abs(pct)}%`} {rotulo}
-    </p>
-  );
-}
-
 /** Atalhos para as telas que não cabem na barra de baixo (no computador ficam no menu lateral). */
 function Atalhos() {
   const itens = ITENS_NAV_EXTRAS.filter((i) => i.href !== "/perfil");
@@ -278,8 +269,6 @@ export function DashboardHome() {
   const mesAtual = period.year === hoje.getFullYear() && period.monthIndex === hoje.getMonth();
   const resultado = (resumo?.entradas ?? 0) - (resumo?.saidas ?? 0);
   const comp = resumo?.comparacao;
-  const variacao = (par: { atual: number; anterior: number } | undefined) =>
-    par && par.anterior > 0 ? Math.round(((par.atual - par.anterior) / par.anterior) * 100) : null;
   // Ex.: "vs 1–15 de set" no mês atual; "vs setembro" em meses passados.
   const rotuloComparacao = comp
     ? comp.ateDia != null
@@ -380,7 +369,15 @@ export function DashboardHome() {
                   <p className="mt-0.5 text-[15px] font-semibold text-positivo">
                     {carregando ? "…" : <Valor valor={resumo?.entradas ?? 0} oculto={oculto} />}
                   </p>
-                  <Variacao pct={variacao(comp?.entradas)} rotulo={rotuloComparacao} visivel={!oculto && !carregando} />
+                  {comp && !carregando ? (
+                    <VariacaoPeriodo
+                      atual={comp.entradas.atual}
+                      anterior={comp.entradas.anterior}
+                      rotulo={rotuloComparacao}
+                      subirEhBom
+                      oculto={oculto}
+                    />
+                  ) : null}
                 </Card>
               </Link>
               <Link href="/relatorios?aba=para-onde" className="block">
@@ -391,7 +388,15 @@ export function DashboardHome() {
                   <p className="mt-0.5 text-[15px] font-semibold text-negativo">
                     {carregando ? "…" : <Valor valor={resumo?.saidas ?? 0} oculto={oculto} />}
                   </p>
-                  <Variacao pct={variacao(comp?.saidas)} rotulo={rotuloComparacao} visivel={!oculto && !carregando} />
+                  {comp && !carregando ? (
+                    <VariacaoPeriodo
+                      atual={comp.saidas.atual}
+                      anterior={comp.saidas.anterior}
+                      rotulo={rotuloComparacao}
+                      subirEhBom={false}
+                      oculto={oculto}
+                    />
+                  ) : null}
                 </Card>
               </Link>
             </div>

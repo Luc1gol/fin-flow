@@ -1,5 +1,6 @@
 "use client";
 
+import { VariacaoPeriodo } from "@/components/ui/VariacaoPeriodo";
 import Link from "next/link";
 import { useMemo } from "react";
 import { ArrowDownLeft, ArrowUpRight, ChevronRight, Inbox, PiggyBank, CalendarDays, Landmark } from "lucide-react";
@@ -90,7 +91,12 @@ export function AbaVisaoGeral({
             <p className="mt-0.5 truncate text-[15px] font-semibold text-positivo">
               <Valor valor={r.entradas} />
             </p>
-            <Variacao pct={r.varEntradas} subirEhBom />
+            <VariacaoPeriodo
+              atual={r.entradas}
+              anterior={r.entradasAnterior}
+              rotulo={`vs ${ctx.comparacaoNo.replace(/^n(o|os|a|as) /, "")}`}
+              subirEhBom
+            />
           </div>
           <div className="min-w-0">
             <p className="flex items-center gap-1 text-xs text-texto-3">
@@ -99,7 +105,12 @@ export function AbaVisaoGeral({
             <p className="mt-0.5 truncate text-[15px] font-semibold text-negativo">
               <Valor valor={r.saidas} />
             </p>
-            <Variacao pct={r.varSaidas} subirEhBom={false} />
+            <VariacaoPeriodo
+              atual={r.saidas}
+              anterior={r.saidasAnterior}
+              rotulo={`vs ${ctx.comparacaoNo.replace(/^n(o|os|a|as) /, "")}`}
+              subirEhBom={false}
+            />
           </div>
         </div>
       </Card>

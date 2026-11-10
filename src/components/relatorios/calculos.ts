@@ -123,6 +123,8 @@ export type ResumoGeral = {
   resultado: number;
   varEntradas: number | null;
   varSaidas: number | null;
+  entradasAnterior: number;
+  saidasAnterior: number;
   /** Variação do resultado em R$ (atual − anterior). */
   difResultado: number;
   resultadoAnterior: number;
@@ -148,6 +150,8 @@ export function resumoGeral(atuais: L[], anteriores: L[], atual: Intervalo, ante
     resultado,
     varEntradas: variacaoPct(t.entradas, a.entradas),
     varSaidas: variacaoPct(t.saidas, a.saidas),
+    entradasAnterior: a.entradas,
+    saidasAnterior: a.saidas,
     difResultado: resultado - resultadoAnterior,
     resultadoAnterior,
     taxaPoupanca: t.entradas > 0 ? resultado / t.entradas : null,
