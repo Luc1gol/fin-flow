@@ -484,7 +484,9 @@ export function ImportarScreen() {
   const anteriores = pendentes.filter((t) => t.data < inicioUso).length;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4">
+    // Sem min-h-0: a tela cresce com a lista. Espremida na altura da janela, a lista vazava
+    // da área de rolagem e a barra de Confirmar ficava por cima do último lançamento.
+    <div className="flex flex-1 flex-col gap-4">
       <header className="flex items-center gap-2">
         <Link
           href="/inicio"
