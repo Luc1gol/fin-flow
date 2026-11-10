@@ -70,10 +70,10 @@ export function AbaHabitos({ ctx }: { ctx: ContextoAnalise }) {
   const maiorLugar = Math.max(...ordenados.map((l) => (ordem === "vezes" ? l.vezes : l.total)), 1);
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-5 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
       {/* Insights */}
       {insights.length > 0 ? (
-        <Card className="px-3 py-1">
+        <Card className="px-3 py-1 lg:min-w-0">
           <ul className="divide-y divide-borda">
             {insights.slice(0, 4).map((i) => (
               <li key={i.id} className="flex items-start gap-3 py-2.5">
@@ -88,7 +88,7 @@ export function AbaHabitos({ ctx }: { ctx: ContextoAnalise }) {
       ) : null}
 
       {/* Dia da semana */}
-      <Secao titulo="Gasto por dia da semana">
+      <Secao titulo="Gasto por dia da semana" className="lg:min-w-0">
         <Card className="p-3">
           {!temGastos ? (
             <Vazio icone={<Lightbulb className="h-5 w-5" aria-hidden />} titulo="Nenhum gasto neste período" />
@@ -116,7 +116,7 @@ export function AbaHabitos({ ctx }: { ctx: ContextoAnalise }) {
       </Secao>
 
       {/* Lugares */}
-      <Secao titulo="Onde você mais compra">
+      <Secao titulo="Onde você mais compra" className="lg:min-w-0">
         <Card className="px-3 pb-1 pt-3">
           <Segmentado
             rotulo="Ordenar lugares por"
@@ -177,7 +177,7 @@ export function AbaHabitos({ ctx }: { ctx: ContextoAnalise }) {
       </Secao>
 
       {/* Recorrentes */}
-      <Secao titulo="Gastos que se repetem" acao={{ label: "Contas fixas", href: "/recorrencias" }}>
+      <Secao titulo="Gastos que se repetem" acao={{ label: "Contas fixas", href: "/recorrencias" }} className="lg:min-w-0">
         <Card className="px-3">
           {recs.length === 0 ? (
             <Vazio

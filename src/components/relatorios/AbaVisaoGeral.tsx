@@ -51,8 +51,12 @@ export function AbaVisaoGeral({
       ? Math.round((taxa - r.taxaPoupancaAnterior) * 100)
       : null;
 
+  const temDireita = temHistorico || top.length > 0;
+
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-5 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
+      {/* Coluna da esquerda no computador: números do período */}
+      <div className={`contents lg:flex lg:min-w-0 lg:flex-col lg:gap-5 ${temDireita ? "" : "lg:col-span-2"}`}>
       {/* Resultado */}
       <Card className="px-4 py-4">
         <p className="text-xs text-texto-3">Resultado do período</p>
@@ -162,7 +166,11 @@ export function AbaVisaoGeral({
       </div>
 
       <CardInvestimentos ctx={ctx} />
+      </div>
 
+      {/* Coluna da direita no computador: evolução e onde mais gastou */}
+      {temDireita ? (
+      <div className="contents lg:flex lg:min-w-0 lg:flex-col lg:gap-5">
       {/* Últimos 6 meses */}
       {temHistorico ? (
         <Secao titulo="Últimos 6 meses">
@@ -219,8 +227,10 @@ export function AbaVisaoGeral({
           </Card>
         </section>
       ) : null}
+      </div>
+      ) : null}
 
-      <p className="text-center text-[11px] text-texto-3">
+      <p className="text-center text-[11px] text-texto-3 lg:col-span-2">
         Comparações com {rotuloIntervalo(ctx.anterior)} · transferências não entram
       </p>
     </div>

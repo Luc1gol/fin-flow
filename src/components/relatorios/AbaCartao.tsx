@@ -70,9 +70,9 @@ export function AbaCartao({ ctx }: { ctx: ContextoAnalise }) {
   const usoLimite = cartoes.temLimite ? 1 - cartoes.disponivel / cartoes.limite : 0;
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-5 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
       {/* Como você paga */}
-      <Card className="px-4 py-4">
+      <Card className="px-4 py-4 lg:min-w-0">
         <p className="text-xs text-texto-3">Gasto no crédito no período</p>
         <div className="mt-0.5 flex items-baseline gap-2">
           <p className="text-[26px] font-semibold leading-tight text-texto">
@@ -116,7 +116,7 @@ export function AbaCartao({ ctx }: { ctx: ContextoAnalise }) {
 
       {/* Cartões hoje (banco) */}
       {temContas ? (
-        <Secao titulo="Seus cartões hoje" acao={{ label: "Cartões", href: "/cartoes" }}>
+        <Secao titulo="Seus cartões hoje" acao={{ label: "Cartões", href: "/cartoes" }} className="lg:min-w-0">
           <Card className="px-4 py-3">
             <div className="flex items-end justify-between gap-3">
               <div className="min-w-0">
@@ -172,7 +172,7 @@ export function AbaCartao({ ctx }: { ctx: ContextoAnalise }) {
       ) : null}
 
       {/* Histórico de faturas */}
-      <Secao titulo="Faturas">
+      <Secao titulo="Faturas" className="lg:min-w-0">
         <Card className="p-3">
           {faturas.length === 0 ? (
             <Vazio
@@ -228,7 +228,7 @@ export function AbaCartao({ ctx }: { ctx: ContextoAnalise }) {
       </Secao>
 
       {/* Compromisso futuro */}
-      <Secao titulo="Compromisso futuro">
+      <Secao titulo="Compromisso futuro" className="lg:min-w-0">
         <Card className="p-3">
           {totalCompromisso <= 0 ? (
             <Vazio
@@ -276,7 +276,7 @@ export function AbaCartao({ ctx }: { ctx: ContextoAnalise }) {
 
       {/* Parcelamentos ativos */}
       {parcelas.length > 0 ? (
-        <Secao titulo="Parcelamentos ativos">
+        <Secao titulo="Parcelamentos ativos" className="lg:min-w-0">
           <Card className="px-3">
             <div className="flex justify-between gap-3 border-b border-borda px-1 py-2.5 text-xs text-texto-3">
               <span>
@@ -325,7 +325,7 @@ export function AbaCartao({ ctx }: { ctx: ContextoAnalise }) {
       ) : null}
 
       {/* Maiores compras no crédito */}
-      <Secao titulo="Maiores compras no crédito">
+      <Secao titulo="Maiores compras no crédito" className="lg:min-w-0">
         <Card className="px-3">
           {maiores.length === 0 ? (
             <Vazio

@@ -4,8 +4,8 @@ import { usePathname } from "next/navigation";
 import { BottomNav } from "@/components/layout/BottomNav";
 import { SidebarNav } from "@/components/layout/SidebarNav";
 
-/** Telas desenhadas em largura total no computador; as demais ficam numa coluna central. */
-const ROTAS_LARGAS = ["/inicio", "/importar"];
+/** Formulários: no computador ficam numa coluna média (campos esticados demais cansam a leitura). */
+const ROTAS_FORMULARIO = ["/lancar", "/perfil"];
 
 export function MainLayoutChrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -16,7 +16,7 @@ export function MainLayoutChrome({ children }: { children: React.ReactNode }) {
 
   const perfilRota =
     pathname === "/perfil" || pathname.startsWith("/perfil/");
-  const larga = ROTAS_LARGAS.some((r) => pathname === r || pathname.startsWith(`${r}/`));
+  const formulario = ROTAS_FORMULARIO.some((r) => pathname === r || pathname.startsWith(`${r}/`));
 
   return (
     <div className="relative flex min-h-0 w-full flex-1 overflow-hidden">
@@ -24,7 +24,7 @@ export function MainLayoutChrome({ children }: { children: React.ReactNode }) {
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <div
           className={`relative z-0 mx-auto flex min-h-0 w-full max-w-[430px] flex-1 flex-col overflow-x-hidden overscroll-y-contain pt-[max(1rem,env(safe-area-inset-top))] lg:pt-8 ${
-            larga ? "lg:max-w-5xl lg:px-8" : "lg:max-w-xl"
+            formulario ? "lg:max-w-3xl lg:px-8" : "lg:max-w-6xl lg:px-8"
           } ${
             perfilRota
               ? "overflow-hidden px-0"

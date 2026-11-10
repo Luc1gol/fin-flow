@@ -742,8 +742,12 @@ export function ExtratoScreen() {
         </button>
       </header>
 
+      {/* No computador: busca, filtros e resumo numa coluna lateral fixa; a lista ao lado.
+          No celular os wrappers são `contents` (não mudam nada). */}
+      <div className="contents lg:grid lg:grid-cols-[minmax(0,19rem)_minmax(0,1fr)] lg:items-start lg:gap-6 xl:grid-cols-[minmax(0,21rem)_minmax(0,1fr)]">
+      <div className="contents lg:sticky lg:top-0 lg:z-10 lg:flex lg:min-w-0 lg:flex-col lg:gap-3">
       {/* Busca e filtros: ficam presos no topo ao rolar a lista. */}
-      <div className="sticky top-0 z-20 -mx-4 flex flex-col gap-2 bg-fundo/75 px-4 pb-2 pt-1 backdrop-blur-xl before:pointer-events-none before:absolute before:inset-x-0 before:bottom-full before:h-[max(1rem,env(safe-area-inset-top))] before:bg-fundo/75 before:backdrop-blur-xl lg:-mx-1 lg:px-1">
+      <div className="sticky top-0 z-20 -mx-4 flex flex-col gap-2 bg-fundo/75 px-4 pb-2 pt-1 backdrop-blur-xl before:pointer-events-none before:absolute before:inset-x-0 before:bottom-full before:h-[max(1rem,env(safe-area-inset-top))] before:bg-fundo/75 before:backdrop-blur-xl lg:static lg:z-auto lg:mx-0 lg:bg-transparent lg:px-0 lg:pb-0 lg:pt-0 lg:backdrop-blur-none lg:before:hidden">
         <div className="relative">
           <Search
             className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-texto-3"
@@ -771,11 +775,11 @@ export function ExtratoScreen() {
         </div>
 
         <div
-          className="-mx-4 overflow-x-auto px-4 py-1 [-ms-overflow-style:none] [scrollbar-width:none] lg:-mx-1 lg:px-1 [&::-webkit-scrollbar]:hidden"
+          className="-mx-4 overflow-x-auto px-4 py-1 [-ms-overflow-style:none] [scrollbar-width:none] lg:mx-0 lg:overflow-visible lg:px-0 [&::-webkit-scrollbar]:hidden"
           role="toolbar"
           aria-label="Filtros do extrato"
         >
-          <div className="flex w-max items-center gap-1.5">
+          <div className="flex w-max items-center gap-1.5 lg:w-auto lg:flex-wrap lg:gap-y-2">
             <ChipFiltro
               icone={Calendar}
               ativo={periodoForaDoPadrao}
@@ -878,7 +882,9 @@ export function ExtratoScreen() {
           </p>
         ) : null}
       </section>
+      </div>
 
+      <div className="contents lg:block lg:min-w-0">
       {carregando ? (
         <div aria-busy="true" aria-label="Carregando extrato">
           <div className="mb-1 h-3 w-16 animate-pulse rounded bg-superficie-2" />
@@ -938,6 +944,8 @@ export function ExtratoScreen() {
           ))}
         </div>
       )}
+      </div>
+      </div>
 
       {/* Folhas de filtro */}
       {isClient && filtroAberto === "periodo" ? (

@@ -13,6 +13,7 @@ import { createPortal } from "react-dom";
 import {
   CalendarCheck,
   CalendarClock,
+  CheckCircle2,
   ChevronDown,
   CreditCard,
   Landmark,
@@ -431,12 +432,70 @@ function DetalheCartao({
   const aPagarFechada = fechada ? fechada.valorTotal - fechada.valorPago : 0;
   const proxima = fechada ? Math.max(0, fatura - aPagarFechada) : 0;
 
+  // No computador o detalhe vira duas colunas. Com histórico, as datas ficam à esquerda (junto
+  // da fatura) e o histórico à direita; sem histórico, as datas passam para a direita. A ordem
+  // dos elementos (e o celular) não muda: só o ponto de divisão entre as colunas.
+  const temHistorico = conta !== null && faturasBanco.length > 0;
+
+  const cardDatas = (
+    <Card className="divide-y divide-borda px-3">
+      <LinhaInfo
+        icone={<CalendarClock className="h-4 w-4" aria-hidden />}
+        rotulo="Fechamento"
+        valor={
+          <span className="inline-flex items-center gap-1.5">
+            {fechBancoIso ? <SeloBanco /> : null}
+            Dia {fechamento.getDate()}
+            <span className="text-xs text-texto-3">
+              {dataCurta(fechamento)} · {textoDias(diasFecha)}
+            </span>
+          </span>
+        }
+      />
+      <LinhaInfo
+        icone={<CalendarCheck className="h-4 w-4" aria-hidden />}
+        rotulo="Vencimento"
+        valor={
+          <span className="inline-flex items-center gap-1.5">
+            {vencBancoIso ? <SeloBanco /> : null}
+            Dia {vencimento.getDate()}
+            <span className="text-xs text-texto-3">
+              {dataCurta(vencimento)} · {textoDias(diasVence)}
+            </span>
+          </span>
+        }
+      />
+      {conta?.pagamentoMinimo != null ? (
+        <LinhaInfo
+          icone={<ReceiptText className="h-4 w-4" aria-hidden />}
+          rotulo="Pagamento mínimo"
+          valor={
+            <span className="inline-flex items-center gap-1.5">
+              <SeloBanco />
+              <Valor valor={conta.pagamentoMinimo} />
+            </span>
+          }
+        />
+      ) : null}
+      <LinhaInfo
+        icone={<ShoppingBag className="h-4 w-4" aria-hidden />}
+        rotulo="Melhor dia de compra"
+        valor={<span className="font-medium text-positivo">Dia {fechamento.getDate()}</span>}
+      />
+    </Card>
+  );
+
   return (
-    <section className="flex flex-col gap-3">
+    <section className="flex flex-col gap-3 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start lg:gap-x-6">
+      <div className="contents lg:flex lg:min-w-0 lg:flex-col lg:gap-3">
       <div>
         {fechada ? (
           <p className="flex items-center gap-1.5 text-xs text-texto-3">
             Fatura fechada · vence {dataCurta(dataDeIso(fechada.vencimento))} <SeloBanco />
+          </p>
+        ) : doBanco && conta.pagamento ? (
+          <p className="flex items-center gap-1.5 text-xs text-texto-3">
+            Fatura aberta · vence {dataCurta(vencimento)} <SeloBanco />
           </p>
         ) : doBanco ? (
           <p className="flex items-center gap-1.5 text-xs text-texto-3">
@@ -453,6 +512,15 @@ function DetalheCartao({
         {fechada ? (
           <p className="mt-1 text-sm text-texto-2">
             Próxima fatura (aberta): <Valor valor={proxima} />
+          </p>
+        ) : null}
+        {conta?.pagamento && !fechada ? (
+          <p className="mt-1 flex items-center gap-1.5 text-sm text-positivo">
+            <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden />
+            <span>
+              Fatura de {dataCurta(dataDeIso(conta.pagamento.vencimentoPago))} paga:{" "}
+              <Valor valor={conta.pagamento.valor} /> em {dataCurta(dataDeIso(conta.pagamento.data))}
+            </span>
           </p>
         ) : null}
         <p className="mt-0.5 text-[11px] text-texto-3">
@@ -498,51 +566,11 @@ function DetalheCartao({
         </button>
       ) : null}
 
-      <Card className="divide-y divide-borda px-3">
-        <LinhaInfo
-          icone={<CalendarClock className="h-4 w-4" aria-hidden />}
-          rotulo="Fechamento"
-          valor={
-            <span className="inline-flex items-center gap-1.5">
-              {fechBancoIso ? <SeloBanco /> : null}
-              Dia {fechamento.getDate()}
-              <span className="text-xs text-texto-3">
-                {dataCurta(fechamento)} · {textoDias(diasFecha)}
-              </span>
-            </span>
-          }
-        />
-        <LinhaInfo
-          icone={<CalendarCheck className="h-4 w-4" aria-hidden />}
-          rotulo="Vencimento"
-          valor={
-            <span className="inline-flex items-center gap-1.5">
-              {vencBancoIso ? <SeloBanco /> : null}
-              Dia {vencimento.getDate()}
-              <span className="text-xs text-texto-3">
-                {dataCurta(vencimento)} · {textoDias(diasVence)}
-              </span>
-            </span>
-          }
-        />
-        {conta?.pagamentoMinimo != null ? (
-          <LinhaInfo
-            icone={<ReceiptText className="h-4 w-4" aria-hidden />}
-            rotulo="Pagamento mínimo"
-            valor={
-              <span className="inline-flex items-center gap-1.5">
-                <SeloBanco />
-                <Valor valor={conta.pagamentoMinimo} />
-              </span>
-            }
-          />
-        ) : null}
-        <LinhaInfo
-          icone={<ShoppingBag className="h-4 w-4" aria-hidden />}
-          rotulo="Melhor dia de compra"
-          valor={<span className="font-medium text-positivo">Dia {fechamento.getDate()}</span>}
-        />
-      </Card>
+      {temHistorico ? cardDatas : null}
+      </div>
+
+      <div className="contents lg:flex lg:min-w-0 lg:flex-col lg:gap-3">
+      {temHistorico ? null : cardDatas}
 
       {conta ? <HistoricoFaturas faturas={faturasBanco} /> : null}
 
@@ -559,6 +587,7 @@ function DetalheCartao({
           <Trash2 className="h-3.5 w-3.5" aria-hidden />
           Excluir
         </Botao>
+      </div>
       </div>
     </section>
   );
@@ -1000,7 +1029,7 @@ export function CartoesScreen() {
       ) : (
         <>
           <div
-            className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto scroll-px-4 px-4 py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:mx-0 lg:scroll-px-0 lg:px-0"
+            className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto scroll-px-4 px-4 py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:mx-0 lg:flex-wrap lg:overflow-visible lg:scroll-px-0 lg:px-0"
           >
             {cartoesOrdenados.map((c) => (
               <CartaoMini

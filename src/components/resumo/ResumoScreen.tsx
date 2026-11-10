@@ -143,6 +143,9 @@ export function ResumoScreen() {
   const erroAtual = erro?.chave === chave ? erro.msg : null;
   const r = dados?.chave === chave ? dados.resumo : null;
   const nomeAnterior = nomeMes(anterior, false);
+  /** No computador: duas colunas só quando há listas para a coluna da direita. */
+  const colunas = r != null && (r.categorias.length > 0 || r.orcamentos != null || r.maioresGastos.length > 0);
+  const bloco = colunas ? "lg:flex lg:min-w-0 lg:flex-col lg:gap-5" : "";
 
   return (
     <div className="flex flex-col gap-5 pb-6">
@@ -187,7 +190,16 @@ export function ResumoScreen() {
       ) : !r ? (
         <Esqueleto />
       ) : (
-        <>
+        <div
+          className={`flex flex-col gap-5 ${
+            colunas
+              ? "lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:grid-rows-[auto_1fr] lg:items-start"
+              : "lg:max-w-2xl"
+          }`}
+        >
+          {/* No celular os blocos abaixo são "contents" (mesma ordem de sempre). No computador:
+              resultado + semanas + patrimônio à esquerda; categorias, orçamentos e maiores gastos à direita. */}
+          <div className={`contents lg:col-start-1 lg:row-start-1 ${bloco}`}>
           {/* Resultado */}
           <Card className="p-4">
             <p className="text-xs text-texto-3">Resultado de {nomeMes(mes, false)}</p>
@@ -225,7 +237,9 @@ export function ResumoScreen() {
               <p className="mt-1 text-xs text-texto-3">Quando houver lançamentos, o resumo aparece aqui.</p>
             </Card>
           ) : null}
+          </div>
 
+          <div className={`contents lg:col-start-2 lg:row-span-2 lg:row-start-1 ${bloco}`}>
           {/* Categorias */}
           {r.categorias.length > 0 ? (
             <Secao titulo="Para onde foi o dinheiro" acao={{ label: "Relatórios", href: "/relatorios" }}>
@@ -295,7 +309,9 @@ export function ResumoScreen() {
               </Card>
             </Secao>
           ) : null}
+          </div>
 
+          <div className={`contents lg:col-start-1 lg:row-start-2 ${bloco}`}>
           {/* Semanas */}
           {r.saidas > 0 ? (
             <Secao titulo="Gastos por semana">
@@ -334,7 +350,8 @@ export function ResumoScreen() {
               </Card>
             </Secao>
           ) : null}
-        </>
+          </div>
+        </div>
       )}
     </div>
   );

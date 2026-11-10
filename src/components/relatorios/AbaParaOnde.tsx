@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChevronDown, CircleEllipsis, Hash, Inbox, PenLine } from "lucide-react";
+import { ChevronDown, CircleEllipsis, Hash, Inbox, MousePointerClick, PenLine } from "lucide-react";
 import { BANCOS } from "@/data/bancos";
 import type { FatiaGasto, MeioAnalise, VisaoComposicao } from "@/types/relatorios";
 import { Card, Valor } from "@/components/ui/base";
@@ -163,6 +163,7 @@ export function AbaParaOnde({ ctx }: { ctx: ContextoAnalise }) {
     [ctx],
   );
   const qtd = ctx.atuais.filter((r) => r.tipo === "despesa").length;
+  const fatiaAberta = fatias.find((f) => f.nome === aberto) ?? null;
 
   return (
     <div className="flex flex-col gap-4">
@@ -171,13 +172,19 @@ export function AbaParaOnde({ ctx }: { ctx: ContextoAnalise }) {
         opcoes={VISOES}
         valor={visao}
         pequeno
+        className="lg:max-w-md"
         onChange={(v) => {
           setVisao(v);
           setAberto(null);
         }}
       />
 
-      <Card className="px-3 pb-2 pt-3">
+      <div
+        className={`lg:grid lg:items-start lg:gap-5 ${
+          fatias.length > 0 ? "lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]" : "lg:grid-cols-[minmax(0,1fr)]"
+        }`}
+      >
+      <Card className="px-3 pb-2 pt-3 lg:min-w-0">
         <div className="flex items-end justify-between gap-3 px-1">
           <div className="min-w-0">
             <p className="text-xs text-texto-3">Total gasto</p>
@@ -255,7 +262,12 @@ export function AbaParaOnde({ ctx }: { ctx: ContextoAnalise }) {
                         aria-hidden
                       />
                     </button>
-                    {estaAberto ? <DetalheGrupo ctx={ctx} fatia={f} visao={visao} /> : null}
+                    {estaAberto ? (
+                      // No computador o detalhe vai para o painel ao lado da lista.
+                      <div className="lg:hidden">
+                        <DetalheGrupo ctx={ctx} fatia={f} visao={visao} />
+                      </div>
+                    ) : null}
                   </li>
                 );
               })}
@@ -268,6 +280,36 @@ export function AbaParaOnde({ ctx }: { ctx: ContextoAnalise }) {
           </>
         )}
       </Card>
+
+      {/* Painel de detalhe (só no computador) */}
+      {fatias.length > 0 ? (
+        <div className="hidden min-w-0 lg:sticky lg:top-14 lg:block">
+          {fatiaAberta ? (
+            <Card className="px-3 pb-1 pt-3">
+              <div className="mb-3 flex items-center gap-3 px-1">
+                <IconeGrupo fatia={fatiaAberta} visao={visao} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium text-texto">
+                    {visao === "meio" ? ROTULO_MEIO[fatiaAberta.nome as MeioAnalise] ?? fatiaAberta.nome : fatiaAberta.nome}
+                  </span>
+                  <span className="block text-[11px] text-texto-3">{pctTexto(fatiaAberta.pct)} do total</span>
+                </span>
+                <Valor valor={fatiaAberta.valor} className="shrink-0 text-base font-semibold text-texto" />
+              </div>
+              <DetalheGrupo key={`${visao}|${fatiaAberta.nome}`} ctx={ctx} fatia={fatiaAberta} visao={visao} />
+            </Card>
+          ) : (
+            <Card>
+              <Vazio
+                icone={<MousePointerClick className="h-5 w-5" aria-hidden />}
+                titulo="Escolha um item da lista"
+                texto="Clique num item para ver a tendência dos últimos 6 meses e os lançamentos do período."
+              />
+            </Card>
+          )}
+        </div>
+      ) : null}
+      </div>
     </div>
   );
 }

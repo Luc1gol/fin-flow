@@ -501,6 +501,11 @@ export function ImportarScreen() {
         ) : null}
       </header>
 
+      {/* No celular os blocos abaixo são "contents" (mesma ordem de sempre). No computador:
+          fila de transações na coluna principal (a barra de Confirmar acompanha a fila) e
+          bancos + arquivo OFX + avisos numa coluna lateral. */}
+      <div className="contents lg:grid lg:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)] lg:items-start lg:gap-6">
+      <div className="contents lg:sticky lg:top-6 lg:col-start-2 lg:row-start-1 lg:flex lg:min-w-0 lg:flex-col lg:gap-4">
       {/* Bancos conectados: um por linha, cada um com a sua situação */}
       {openFinance ? (
         <Card className="divide-y divide-borda">
@@ -574,7 +579,9 @@ export function ImportarScreen() {
           {aviso.texto}
         </p>
       ) : null}
+      </div>
 
+      <div className="contents lg:col-start-1 lg:row-start-1 lg:flex lg:min-w-0 lg:flex-col">
       {carregando ? (
         <div className="flex justify-center py-10">
           <Loader2 className="h-5 w-5 animate-spin text-texto-3" aria-label="Carregando" />
@@ -663,6 +670,8 @@ export function ImportarScreen() {
           </div>
         </section>
       )}
+      </div>
+      </div>
     </div>
   );
 }

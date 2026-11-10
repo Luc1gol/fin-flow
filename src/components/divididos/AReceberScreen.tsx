@@ -190,9 +190,16 @@ export function AReceberScreen() {
           ))}
         </div>
       ) : painel ? (
-        <>
+        <div
+          className={`flex flex-col gap-5 ${
+            grupos.length > 0
+              ? "lg:grid lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] lg:grid-rows-[auto_1fr] lg:items-start"
+              : "lg:max-w-2xl"
+          }`}
+        >
+          {/* No computador: total na coluna lateral, pessoas na principal, recebidos embaixo do total. */}
           {grupos.length > 0 ? (
-            <Card className="p-4">
+            <Card className="p-4 lg:col-start-2 lg:row-start-1">
               <p className="text-xs text-texto-3">Te devem hoje</p>
               <p className="mt-1 text-[22px] font-semibold text-texto">
                 <Valor valor={totalAtual} />
@@ -226,7 +233,7 @@ export function AReceberScreen() {
           )}
 
           {grupos.length > 0 ? (
-            <Secao titulo="Por pessoa">
+            <Secao titulo="Por pessoa" className="min-w-0 lg:col-start-1 lg:row-span-2 lg:row-start-1">
               <div className="flex flex-col gap-3">
                 {grupos.map((g) => (
                   <CartaoPessoa
@@ -242,7 +249,7 @@ export function AReceberScreen() {
           ) : null}
 
           {recebidos.length > 0 ? (
-            <section>
+            <section className="min-w-0 lg:col-start-2 lg:row-start-2">
               <button
                 type="button"
                 onClick={() => setMostrarRecebidos((v) => !v)}
@@ -286,7 +293,7 @@ export function AReceberScreen() {
               ) : null}
             </section>
           ) : null}
-        </>
+        </div>
       ) : null}
     </div>
   );

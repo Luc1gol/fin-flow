@@ -243,7 +243,7 @@ export function MetasScreen() {
       ) : painel ? (
         <>
           {painel.metas.length === 0 ? (
-            <Card className="p-4">
+            <Card className="p-4 lg:max-w-2xl">
               <div className="flex items-start gap-3">
                 <span className="vidro-marca flex h-9 w-9 shrink-0 items-center justify-center rounded-full">
                   <Sparkles className="h-4 w-4" aria-hidden />
@@ -281,7 +281,7 @@ export function MetasScreen() {
 
           {ativas.length > 0 ? (
             <Secao titulo="Em andamento">
-              <div className="flex flex-col gap-3">{ativas.map(cartao)}</div>
+              <div className="flex flex-col gap-3 lg:grid lg:grid-cols-2 lg:items-start xl:grid-cols-3">{ativas.map(cartao)}</div>
             </Secao>
           ) : null}
 
@@ -291,7 +291,7 @@ export function MetasScreen() {
                 type="button"
                 onClick={() => setMostrarConcluidas((v) => !v)}
                 aria-expanded={mostrarConcluidas}
-                className="mb-2 flex w-full items-center justify-between text-sm font-semibold text-texto"
+                className="mb-2 flex w-full items-center justify-between text-sm font-semibold text-texto lg:w-auto lg:justify-start lg:gap-2"
               >
                 Concluídas ({concluidas.length})
                 <ChevronDown
@@ -299,7 +299,9 @@ export function MetasScreen() {
                   aria-hidden
                 />
               </button>
-              {mostrarConcluidas ? <div className="flex flex-col gap-3">{concluidas.map(cartao)}</div> : null}
+              {mostrarConcluidas ? (
+                <div className="flex flex-col gap-3 lg:grid lg:grid-cols-2 lg:items-start xl:grid-cols-3">{concluidas.map(cartao)}</div>
+              ) : null}
             </section>
           ) : null}
 

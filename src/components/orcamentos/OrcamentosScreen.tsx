@@ -166,10 +166,16 @@ export function OrcamentosScreen() {
           ))}
         </div>
       ) : (
-        <>
-          {/* Resumo do mês */}
+        <div
+          className={`flex flex-col gap-5 ${
+            comLimite.length + semLimite.length > 0
+              ? "lg:grid lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] lg:items-start"
+              : ""
+          }`}
+        >
+          {/* Resumo do mês (no computador: coluna lateral que acompanha a rolagem) */}
           {comLimite.length > 0 ? (
-            <Card className="p-4">
+            <Card className="p-4 lg:sticky lg:top-6 lg:col-start-2 lg:row-span-2 lg:row-start-1">
               <div className="flex items-baseline justify-between">
                 <p className="text-xs text-texto-3">Gasto nas categorias com orçamento</p>
                 <p className="text-xs text-texto-3">{Math.round((total.gasto / total.limite) * 100)}%</p>
@@ -198,7 +204,7 @@ export function OrcamentosScreen() {
               </p>
             </Card>
           ) : sugestoes.length > 0 ? (
-            <Card className="p-4">
+            <Card className="p-4 lg:sticky lg:top-6 lg:col-start-2 lg:row-span-2 lg:row-start-1">
               <div className="flex items-start gap-3">
                 <span className="vidro-marca flex h-9 w-9 shrink-0 items-center justify-center rounded-full">
                   <Sparkles className="h-4 w-4" aria-hidden />
@@ -229,14 +235,14 @@ export function OrcamentosScreen() {
               </div>
             </Card>
           ) : (
-            <Card className="p-4 text-center">
+            <Card className="p-4 text-center lg:sticky lg:top-6 lg:col-start-2 lg:row-span-2 lg:row-start-1">
               <p className="text-sm text-texto">Defina quanto quer gastar por categoria</p>
               <p className="mt-1 text-xs text-texto-3">O app avisa quando você chegar perto do limite.</p>
             </Card>
           )}
 
           {comLimite.length > 0 ? (
-            <Secao titulo="Por categoria">
+            <Secao titulo="Por categoria" className="min-w-0 lg:col-start-1">
               <Card className="divide-y divide-borda px-3">
                 {comLimite.map((i) => {
                   const resto = i.limite - i.gasto;
@@ -284,7 +290,7 @@ export function OrcamentosScreen() {
           ) : null}
 
           {semLimite.length > 0 ? (
-            <Secao titulo="Sem orçamento">
+            <Secao titulo="Sem orçamento" className="min-w-0 lg:col-start-1">
               <Card className="divide-y divide-borda px-3">
                 {semLimite.map((i) => (
                   <div key={i.categoria} className="flex items-center gap-3 py-2.5">
@@ -318,7 +324,7 @@ export function OrcamentosScreen() {
               </Card>
             </Secao>
           ) : null}
-        </>
+        </div>
       )}
 
       {edicao ? (

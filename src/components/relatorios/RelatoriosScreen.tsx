@@ -80,11 +80,16 @@ async function carregarAnalise(periodo: PeriodoRelatorioId): Promise<DadosAnalis
 
 function EsqueletoAnalise() {
   return (
-    <div className="flex flex-col gap-3" aria-busy>
-      <Esqueleto className="h-24 rounded-2xl" />
-      <div className="grid grid-cols-2 gap-2">
-        <Esqueleto className="h-20 rounded-2xl" />
-        <Esqueleto className="h-20 rounded-2xl" />
+    <div
+      className="flex flex-col gap-3 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start lg:gap-5"
+      aria-busy
+    >
+      <div className="contents lg:flex lg:flex-col lg:gap-3">
+        <Esqueleto className="h-24 rounded-2xl" />
+        <div className="grid grid-cols-2 gap-2">
+          <Esqueleto className="h-20 rounded-2xl" />
+          <Esqueleto className="h-20 rounded-2xl" />
+        </div>
       </div>
       <Esqueleto className="h-56 rounded-2xl" />
     </div>
@@ -158,21 +163,25 @@ export function RelatoriosScreen() {
 
   return (
     <div className="flex flex-col gap-4 pb-8">
-      <header id="topo-analise" className="flex scroll-mt-4 items-end justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="text-lg font-semibold text-texto">Análise</h1>
-          <p className="mt-0.5 h-4 text-xs text-texto-3">
-            {ctx && !atualizando ? rotuloIntervalo(ctx.atual) : ""}
-          </p>
-        </div>
-      </header>
+      {/* No computador, título e período dividem a mesma linha. */}
+      <div className="contents lg:flex lg:items-end lg:justify-between lg:gap-6">
+        <header id="topo-analise" className="flex scroll-mt-4 items-end justify-between gap-3 lg:min-w-0">
+          <div className="min-w-0">
+            <h1 className="text-lg font-semibold text-texto">Análise</h1>
+            <p className="mt-0.5 h-4 text-xs text-texto-3">
+              {ctx && !atualizando ? rotuloIntervalo(ctx.atual) : ""}
+            </p>
+          </div>
+        </header>
 
-      <Segmentado
-        rotulo="Período"
-        opcoes={PERIODOS}
-        valor={periodo}
-        onChange={(p) => atualizarUrl({ periodo: p })}
-      />
+        <Segmentado
+          rotulo="Período"
+          opcoes={PERIODOS}
+          valor={periodo}
+          onChange={(p) => atualizarUrl({ periodo: p })}
+          className="lg:w-[26rem] lg:shrink-0"
+        />
+      </div>
 
       <div className="sticky top-0 z-10 -mx-4 bg-fundo/75 px-4 backdrop-blur-xl">
         <BarraAbas abas={ABAS} valor={aba} onChange={irPara} />

@@ -98,7 +98,9 @@ export function ProjecaoScreen() {
           ))}
         </div>
       ) : (
-        <>
+        // No computador: saldo previsto + "como chegamos" à esquerda, "o que ainda vem" à direita.
+        <div className="contents lg:grid lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:items-start lg:gap-5">
+          <div className="contents lg:flex lg:min-w-0 lg:flex-col lg:gap-5">
           <Card className="p-4">
             <p className="text-xs text-texto-3">
               {semSaldo ? `Variação prevista até ${dataCurta(p.fimMes)}` : `Saldo previsto em ${dataCurta(p.fimMes)}`}
@@ -118,7 +120,7 @@ export function ProjecaoScreen() {
               </p>
             ) : null}
 
-            <div className="mt-4 h-36">
+            <div className="mt-4 h-36 lg:h-52">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={p.serie} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
                   <defs>
@@ -181,8 +183,9 @@ export function ProjecaoScreen() {
               </div>
             </Card>
           </Secao>
+          </div>
 
-          <Secao titulo={`O que ainda vem até ${dataCurta(p.fimMes)}`}>
+          <Secao titulo={`O que ainda vem até ${dataCurta(p.fimMes)}`} className="lg:min-w-0">
             {p.eventos.length === 0 ? (
               <Card className="p-4 text-center text-xs text-texto-3">
                 Nada previsto. Cadastre suas contas fixas para a projeção ficar mais precisa.
@@ -208,7 +211,7 @@ export function ProjecaoScreen() {
             )}
           </Secao>
 
-          <p className="flex gap-2 text-[11px] text-texto-3">
+          <p className="flex gap-2 text-[11px] text-texto-3 lg:col-span-2">
             <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
             <span>
               {p.saldoHoje?.em
@@ -220,7 +223,7 @@ export function ProjecaoScreen() {
               lançamentos do cartão. O dia a dia é a média diária em débito, Pix e dinheiro (até os últimos 90 dias).
             </span>
           </p>
-        </>
+        </div>
       )}
     </div>
   );

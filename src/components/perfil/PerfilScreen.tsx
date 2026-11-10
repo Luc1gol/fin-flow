@@ -338,7 +338,7 @@ export function PerfilScreen() {
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-[calc(2rem+env(safe-area-inset-bottom))] pt-2">
-        <div className="mx-auto flex w-full max-w-md flex-col gap-6">
+        <div className="mx-auto flex w-full max-w-md flex-col gap-6 lg:max-w-none">
           {/* Identidade */}
           <section
             className="flex items-center gap-3.5 px-1 pt-1"

@@ -147,6 +147,8 @@ export function RecorrenciasScreen() {
   }
 
   const vazio = !carregando && (painel?.contas.length ?? 0) === 0;
+  /** No computador: duas colunas, a não ser que só exista o aviso de "cadastre suas contas". */
+  const colunas = !vazio || (painel?.sugestoes.length ?? 0) > 0;
 
   return (
     <div className="flex flex-col gap-5 pb-6">
@@ -180,7 +182,14 @@ export function RecorrenciasScreen() {
           ))}
         </div>
       ) : (
-        <>
+        <div
+          className={`flex flex-col gap-5 ${
+            colunas ? "lg:grid lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] lg:grid-rows-[auto_1fr] lg:items-start" : ""
+          }`}
+        >
+          {/* No celular os três blocos abaixo são "contents" (mesma ordem de sempre); no computador,
+              totais + sugestões ficam na coluna lateral e as contas na principal. */}
+          <div className={`contents lg:col-start-2 lg:row-start-1 ${colunas ? "lg:flex lg:min-w-0 lg:flex-col lg:gap-5" : ""}`}>
           {!vazio ? (
             <div className="grid grid-cols-2 gap-2">
               <Card className="px-3 py-2.5">
@@ -230,7 +239,9 @@ export function RecorrenciasScreen() {
               </Card>
             </Secao>
           ) : null}
+          </div>
 
+          <div className={`contents lg:col-start-1 lg:row-span-2 lg:row-start-1 ${colunas ? "lg:flex lg:min-w-0 lg:flex-col lg:gap-5" : ""}`}>
           {vazio ? (
             <Card className="p-5 text-center">
               <p className="text-sm text-texto">Cadastre suas contas e receitas fixas</p>
@@ -290,7 +301,9 @@ export function RecorrenciasScreen() {
                 </Card>
               </Secao>
             ))}
+          </div>
 
+          <div className={`contents lg:col-start-2 lg:row-start-2 ${colunas ? "lg:flex lg:min-w-0 lg:flex-col lg:gap-5" : ""}`}>
           {painel && painel.pausadas.length > 0 ? (
             <Secao titulo="Pausadas">
               <Card className="divide-y divide-borda px-3">
@@ -316,7 +329,8 @@ export function RecorrenciasScreen() {
               Para o que você paga em dinheiro, use “Paguei”.
             </p>
           ) : null}
-        </>
+          </div>
+        </div>
       )}
 
       {edicao ? (

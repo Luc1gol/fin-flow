@@ -914,7 +914,9 @@ export function LancarScreen() {
           </Card>
         ) : null}
 
-        <Card className="p-3">
+        {/* No computador: tags e observações lado a lado (no celular, "contents" mantém a pilha). */}
+        <div className="contents lg:grid lg:grid-cols-2 lg:gap-3">
+        <Card className="min-w-0 p-3">
           <TagsExtrasField
             variant="lancar"
             inputId="lanc-tags-extras"
@@ -944,6 +946,7 @@ export function LancarScreen() {
             className={`${campoClasse} mt-1.5 h-auto min-h-[4rem] resize-none py-2 leading-relaxed`}
           />
         </Card>
+        </div>
       </div>
 
       <footer className="pointer-events-none fixed inset-x-0 bottom-0 z-40 bg-gradient-to-t from-fundo via-fundo/85 to-transparent px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-8 lg:sticky lg:mt-auto lg:px-0 lg:pb-2 lg:pt-6">

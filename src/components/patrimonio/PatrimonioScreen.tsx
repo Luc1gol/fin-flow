@@ -175,7 +175,9 @@ export function PatrimonioScreen() {
       ) : null}
 
       {dados ? (
-        <>
+        // No computador: total e evolução à esquerda, contas e investimentos à direita.
+        <div className="contents lg:grid lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:items-start lg:gap-5">
+          <div className="contents lg:sticky lg:top-4 lg:flex lg:min-w-0 lg:flex-col lg:gap-5">
           <section>
             <p className="text-xs text-texto-3">Patrimônio líquido</p>
             <p className={`mt-1 text-3xl font-semibold tracking-tight ${dados.liquido < 0 ? "text-negativo" : "text-texto"}`}>
@@ -212,11 +214,11 @@ export function PatrimonioScreen() {
                 ))}
               </div>
               {pontos.length >= 2 ? (
-                <div className="h-44">
+                <div className="h-44 lg:h-60">
                   <GraficoPatrimonio pontos={pontos} porMes={periodo !== "30d"} />
                 </div>
               ) : (
-                <div className="flex h-44 flex-col items-center justify-center gap-2 px-6 text-center">
+                <div className="flex h-44 flex-col items-center justify-center gap-2 px-6 text-center lg:h-60">
                   <TrendingUp className="h-6 w-6 text-marca" aria-hidden />
                   <p className="text-sm text-texto-2">
                     {dados.historico.length >= 2
@@ -227,7 +229,9 @@ export function PatrimonioScreen() {
               )}
             </Card>
           </Secao>
+          </div>
 
+          <div className="contents lg:flex lg:min-w-0 lg:flex-col lg:gap-5">
           {dados.contas.length > 0 || dados.cartoesLista.length > 0 ? (
             <Secao titulo="Contas">
               <Card className="divide-y divide-borda py-1">
@@ -308,12 +312,13 @@ export function PatrimonioScreen() {
               Conecte um banco para ver seu patrimônio aqui.
             </Card>
           ) : null}
+          </div>
 
-          <p className="text-center text-[11px] leading-relaxed text-texto-3">
+          <p className="text-center text-[11px] leading-relaxed text-texto-3 lg:col-span-2">
             Os valores vêm da atualização diária do banco
             {dados.atualizadoEm ? ` (última em ${dataHora(dados.atualizadoEm)})` : ""}.
           </p>
-        </>
+        </div>
       ) : null}
     </div>
   );
